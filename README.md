@@ -1,6 +1,6 @@
 # CIS Benchmark Security Audit Suite (`cis-audit`)
 
-Standalone, zero-install, read-only Bash security auditing suite and interactive CLI launcher covering **549 CIS Benchmark controls** (Profile Level fixed to `all` — Level 1 & Level 2) across Ubuntu Linux 26.04 LTS, MariaDB 10.6, Apache HTTP Server 2.4, and NGINX 3.0.0.
+Standalone, zero-install, read-only Bash security auditing suite and interactive CLI launcher covering **549 CIS Benchmark controls** across Ubuntu Linux 26.04 LTS, MariaDB 10.6, Apache HTTP Server 2.4, and NGINX 3.0.0.
 
 ## Quick Start (Run Directly from GitHub)
 
@@ -79,3 +79,7 @@ All four CIS audit scripts share a unified architecture and visual output:
   * `[SKIP]` (Magenta): Control requires live service/database connectivity not currently available.
 
 * **Unified Per-Section Summary Scorecard**: Outputs a section-by-section breakdown table (`OK`, `FAIL`, `MANUAL`, `SKIP`, `Total`) for all executed sections along with overall totals and the automated compliance pass rate percentage.
+
+---
+
+> Build with: Gemini 4 Argon
