@@ -4197,69 +4197,76 @@ run_section_7() {
         fi
     fi
 
-    # Perform a single combined local filesystem scan for 7.1.11, 7.1.12, and 7.1.13 for speed
-    local ww_files=() ww_dirs_nosticky=() nouser_items=() nogroup_items=() suid_files=() sgid_files=()
-    local l_mount l_item
-    local fs_exclude="nfs|proc|cifs|smb|vfat|iso9660|efivarfs|selinuxfs|ncpfs|overlay|tmpfs|devtmpfs|squashfs"
-    local mnt_exclude="\/run|\/tmp|\/var\/tmp|\/proc|\/sys|\/dev|\/working_dir"
-    while IFS= read -r l_mount; do
-        [[ -z "$l_mount" ]] && continue
-        # World writable files & dirs without sticky bit
-        while IFS= read -r -d $'\0' l_item; do
-            if [[ -f "$l_item" ]]; then
-                ww_files+=("$l_item")
-            elif [[ -d "$l_item" ]]; then
-                local m
-                m="$(stat -Lc '%#a' "$l_item" 2>/dev/null || echo 0)"
-                [[ $(( m & 01000 )) -eq 0 ]] && ww_dirs_nosticky+=("$l_item")
-            fi
-        done < <(find "$l_mount" -mount -xdev \( -path "*/containers/storage/*" -o -path "*/containerd/*" -o -path "*/kubelet/*" -o -path "/sys/*" -o -path "/proc/*" -o -path "/dev/*" -o -path "/run/*" -o -path "/snap/*" -o -path "/boot/efi/*" -o -path "/working_dir/*" \) -prune -o \( -type f -o -type d \) -perm -0002 -print0 2>/dev/null)
+    # Fast single-pass C-native filesystem scan for 7.1.11, 7.1.12, and 7.1.13 (zero per-file stat subshells)
+    local wwf_cnt=0 wwd_cnt=0 nouser_cnt=0 nogroup_cnt=0 suid_cnt=0 sgid_cnt=0
+    local wwf_samp="" wwd_samp="" nouser_samp="" nogroup_samp="" suid_samp=""
+    local scan_mounts=() raw_mounts=() m
+    local fs_exclude="nfs|nfs4|proc|cifs|smb|smbfs|vfat|iso9660|efivarfs|selinuxfs|ncpfs|overlay|tmpfs|devtmpfs|squashfs|fuse|fuseblk|autofs|bpf|cgroup|cgroup2|debugfs|mqueue|pstore|securityfs|sysfs|tracefs|9p"
+    local mnt_exclude="\/run|\/tmp|\/var\/tmp|\/proc|\/sys|\/dev|\/snap|\/var\/snap|\/var\/lib\/docker|\/var\/lib\/containerd|\/var\/lib\/containers|\/var\/lib\/kubelet|\/mnt|\/media|\/working_dir"
 
-        # Unowned / ungrouped files & directories
-        while IFS= read -r -d $'\0' l_item; do
-            local u g
-            IFS=: read -r u g <<< "$(stat -Lc '%U:%G' "$l_item" 2>/dev/null)"
-            [[ "$u" == "UNKNOWN" ]] && nouser_items+=("$l_item")
-            [[ "$g" == "UNKNOWN" ]] && nogroup_items+=("$l_item")
-        done < <(find "$l_mount" -mount -xdev \( -path "*/containers/storage/*" -o -path "*/containerd/*" -o -path "*/kubelet/*" -o -path "/sys/*" -o -path "/proc/*" -o -path "/dev/*" -o -path "/run/*" -o -path "/snap/*" -o -path "/boot/efi/*" -o -path "/working_dir/*" \) -prune -o \( -type f -o -type d \) \( -nouser -o -nogroup \) -print0 2>/dev/null)
-
-        # SUID / SGID files
-        while IFS= read -r -d $'\0' l_item; do
-            local m
-            m="$(stat -Lc '%#a' "$l_item" 2>/dev/null || echo 0)"
-            [[ $(( m & 04000 )) -gt 0 ]] && suid_files+=("$l_item")
-            [[ $(( m & 02000 )) -gt 0 ]] && sgid_files+=("$l_item")
-        done < <(find "$l_mount" -mount -xdev \( -path "/sys/*" -o -path "/proc/*" -o -path "/dev/*" -o -path "/run/*" -o -path "/working_dir/*" \) -prune -o -type f \( -perm -2000 -o -perm -4000 \) -print0 2>/dev/null)
-    done < <(findmnt -Dkerno fstype,target 2>/dev/null | awk '($1 !~ /^\s*('"$fs_exclude"')/ && $2 !~ /^('"$mnt_exclude"')(\/|$)/){print $2}' | sort -u)
-
-    # Fallback if container root / is overlay/tmpfs so we still scan /usr, /etc, /var, /home safely
-    if [[ "${#suid_files[@]}" -eq 0 ]]; then
-        while IFS= read -r -d $'\0' l_item; do
-            local m
-            m="$(stat -Lc '%#a' "$l_item" 2>/dev/null || echo 0)"
-            [[ $(( m & 04000 )) -gt 0 ]] && suid_files+=("$l_item")
-            [[ $(( m & 02000 )) -gt 0 ]] && sgid_files+=("$l_item")
-        done < <(find /usr /bin /sbin /etc /var /home -xdev -type f \( -perm -2000 -o -perm -4000 \) -print0 2>/dev/null)
+    mapfile -t raw_mounts < <(findmnt -Dkerno fstype,source,target 2>/dev/null | awk '
+        ($1 !~ /^\s*('"$fs_exclude"')/ && $3 !~ /^('"$mnt_exclude"')(\/|$)/) {
+            src = $2
+            sub(/\[.*\]$/, "", src)
+            if (src != "none" && src != "" && seen[src]++) next
+            print $3
+        }' | sort -u)
+    for m in "${raw_mounts[@]}"; do
+        [[ -n "$m" && -d "$m" ]] && scan_mounts+=("$m")
+    done
+    if [[ "${#scan_mounts[@]}" -eq 0 ]]; then
+        for m in /usr /bin /sbin /etc /var /home; do
+            [[ -d "$m" && ! -L "$m" ]] && scan_mounts+=("$m")
+        done
     fi
+
+    [[ -t 1 ]] && printf "         ${C_DIM}[~] Scanning local filesystems for 7.1.11, 7.1.12 & 7.1.13...${C_RESET}\r"
+    local scan_summary
+    scan_summary="$(find "${scan_mounts[@]}" -xdev \
+        -type d \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /snap \
+           -o -path /var/snap -o -path /var/lib/docker -o -path /var/lib/containerd \
+           -o -path /var/lib/containers -o -path /var/lib/kubelet -o -path /var/lib/lxcfs \
+           -o -path /boot/efi -o -path /mnt -o -path /media -o -path /working_dir \) -prune -o \
+        \( \
+            \( -type f -perm -0002 -printf 'WWF\t%p\n' \) , \
+            \( -type d -perm -0002 ! -perm -1000 -printf 'WWD\t%p\n' \) , \
+            \( ! -uid 0 -nouser -printf 'NOUSER\t%p\n' \) , \
+            \( ! -gid 0 -nogroup -printf 'NOGROUP\t%p\n' \) , \
+            \( -type f -perm -4000 -printf 'SUID\t%p\n' \) , \
+            \( -type f -perm -2000 -printf 'SGID\t%p\n' \) \
+        \) 2>/dev/null | awk -F'\t' '
+            $1=="WWF"     { wwf++;     if (wwf<=5)     wwf_s = wwf_s (wwf_s?" ":"") $2 }
+            $1=="WWD"     { wwd++;     if (wwd<=5)     wwd_s = wwd_s (wwd_s?" ":"") $2 }
+            $1=="NOUSER"  { nou++;     if (nou<=5)     nou_s = nou_s (nou_s?" ":"") $2 }
+            $1=="NOGROUP" { nog++;     if (nog<=5)     nog_s = nog_s (nog_s?" ":"") $2 }
+            $1=="SUID"    { suid++;    if (suid<=6)    suid_s = suid_s (suid_s?" ":"") $2 }
+            $1=="SGID"    { sgid++ }
+            END {
+                printf "%d|%d|%d|%d|%d|%d|%s|%s|%s|%s|%s\n", wwf+0, wwd+0, nou+0, nog+0, suid+0, sgid+0, wwf_s, wwd_s, nou_s, nog_s, suid_s
+            }
+        ')"
+
+    [[ -t 1 ]] && printf "\033[2K\r"
+    IFS='|' read -r wwf_cnt wwd_cnt nouser_cnt nogroup_cnt suid_cnt sgid_cnt wwf_samp wwd_samp nouser_samp nogroup_samp suid_samp <<< "$scan_summary"
 
     # 7.1.11 Ensure world writable files and directories are secured (Automated)
     if should_run_check "7.1.11" "L1"; then
-        if [[ "${#ww_files[@]}" -eq 0 && "${#ww_dirs_nosticky[@]}" -eq 0 ]]; then
+        if [[ "${wwf_cnt:-0}" -eq 0 && "${wwd_cnt:-0}" -eq 0 ]]; then
             report_ok "7.1.11" "Ensure world writable files and directories are secured" "L1" "Automated"
         else
             report_fail "7.1.11" "Ensure world writable files and directories are secured" "L1" "Automated" \
-                "${#ww_files[@]} world-writable file(s) (${ww_files[*]:0:5}) and ${#ww_dirs_nosticky[@]} world-writable dir(s) without sticky bit (${ww_dirs_nosticky[*]:0:5})" \
+                "${wwf_cnt} world-writable file(s) (${wwf_samp:-none}) and ${wwd_cnt} world-writable dir(s) without sticky bit (${wwd_samp:-none})" \
                 "Run 'chmod o-w <file>' on world-writable files and 'chmod a+t <dir>' on world-writable directories."
         fi
     fi
 
     # 7.1.12 Ensure no files or directories without an owner and a group exist (Automated)
     if should_run_check "7.1.12" "L1"; then
-        if [[ "${#nouser_items[@]}" -eq 0 && "${#nogroup_items[@]}" -eq 0 ]]; then
+        if [[ "${nouser_cnt:-0}" -eq 0 && "${nogroup_cnt:-0}" -eq 0 ]]; then
             report_ok "7.1.12" "Ensure no files or directories without an owner and a group exist" "L1" "Automated"
         else
             report_fail "7.1.12" "Ensure no files or directories without an owner and a group exist" "L1" "Automated" \
-                "${#nouser_items[@]} unowned item(s) and ${#nogroup_items[@]} ungrouped item(s) found" \
+                "${nouser_cnt} unowned item(s) (${nouser_samp:-none}) and ${nogroup_cnt} ungrouped item(s) (${nogroup_samp:-none}) found" \
                 "Remove or assign valid ownership ('chown <user>:<group> <path>') to all unowned/ungrouped files and directories."
         fi
     fi
@@ -4267,7 +4274,7 @@ run_section_7() {
     # 7.1.13 Ensure SUID and SGID files are reviewed (Manual)
     if should_run_check "7.1.13" "L1"; then
         report_manual "7.1.13" "Ensure SUID and SGID files are reviewed" "L1" "Manual" \
-            "Found ${#suid_files[@]} SUID file(s) and ${#sgid_files[@]} SGID file(s) (sample: ${suid_files[*]:0:6})" \
+            "Found ${suid_cnt} SUID file(s) and ${sgid_cnt} SGID file(s) (sample: ${suid_samp:-none})" \
             "Review all SUID/SGID files ('find / -xdev -type f \( -perm -4000 -o -perm -2000 \)') and remove SUID/SGID bits ('chmod u-s / g-s <file>') from any unauthorized binaries."
     fi
 
@@ -4490,9 +4497,9 @@ run_section_7() {
 # ==============================================================================
 print_summary() {
     echo -e "\n${C_BG_BLUE} [SUMMARY] ${BENCHMARK_NAME^^} AUDIT REPORT ${C_RESET}"
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "${C_BLUE}====================================================================================${C_RESET}"
     printf "  %-36s | %7s | %7s | %7s | %7s | %7s\n" "Section" "OK" "FAIL" "MANUAL" "SKIP" "Total"
-    echo -e "${C_DIM}------------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
     local s_names=(
         ""
         "1. Initial Setup"
@@ -4513,7 +4520,7 @@ print_summary() {
         [[ "$tot" -eq 0 ]] && ! is_section_selected "$s" && continue
         printf "  %-36s | %7d | %7d | %7d | %7d | %7d\n" "${s_names[$s]}" "$ok" "$fl" "$mn" "$sk" "$tot"
     done
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "${C_BLUE}====================================================================================${C_RESET}"
     echo -e "  ${C_BOLD}Total Checks Executed:${C_RESET}  ${TOTAL_CHECKS}"
     echo -e "  ${C_GREEN}${C_BOLD}[OK] Compliant:${C_RESET}         ${COUNT_OK}"
     echo -e "  ${C_RED}${C_BOLD}[FAIL] Non-Compliant:${C_RESET}   ${COUNT_FAIL}"
@@ -4523,7 +4530,7 @@ print_summary() {
         local pct=$(( (COUNT_OK * 100) / TOTAL_CHECKS ))
         echo -e "  ${C_CYAN}${C_BOLD}Automated Pass Rate:${C_RESET}    ${pct}% (${COUNT_OK}/${TOTAL_CHECKS})"
     fi
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "${C_BLUE}====================================================================================${C_RESET}"
 }
 
 main() {
