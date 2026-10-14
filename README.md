@@ -53,6 +53,7 @@ curl -sL https://github.com/nmwafa/cis-audit/raw/main/main.sh | sudo bash -s -- 
    * **Customize options via letter keys**: Use `[s]`, `[q]`, `[o]`, `[c]` (plus target-specific keys) only when you want to override a default setting.
 
 | **Audit Code** | **Audit Program** | **Displayed Sections (\[1\]–\[N\] or all)** | **Audit-Specific Option Keys** | 
+|---|---|---|---|
 | `[1]` | `cis_ubuntu_26.04_audit.sh` | `1` Initial Setup · `2` Services · `3` Network · `4` Host Based Firewall · `5` Access Control · `6` Logging and Auditing · `7` System Maintenance | `[s]` Section(s), `[q]` Quiet-OK, `[o]` Output File, `[c]` Color | 
 | `[2]` | `cis_mariadb_10.6_audit.sh` | `1` OS Level Config · `2` Installation and Planning · `3` File Permissions · `4` General · `5` MariaDB Permissions · `6` Auditing and Logging · `7` Authentication · `8` Network · `9` Replication | `[s]`, `[q]`, `[o]`, `[c]` plus `[u]` User, `[w]` Ask-Pass, `[p]` Password, `[h]` Host, `[P]` Port, `[S]` Socket, `[f]` Defaults File, `[C]` Config File, `[A]` Admin Users, `[R]` Repl Users, `[B]` Backup Dirs | 
 | `[3]` | `cis_apache_2.4_audit.sh` | `1` Planning/Install · `2` Minimize Modules · `3` Principles/Perms · `4` Access Control · `5` Minimize Features · `6` Operations/Logging · `7` SSL/TLS · `8` Info Leakage · `9` DoS Mitigations · `10` Request Limits · `11` SELinux · `12` AppArmor | `[s]`, `[q]`, `[o]`, `[c]` plus `[p]` ServerRoot Prefix, `[f]` Main Config File, `[B]` Apache Binary, `[D]` DocumentRoot | 
