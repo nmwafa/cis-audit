@@ -1,0 +1,1128 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# CIS Benchmark Security Audit Suite - Interactive CLI Launcher (main.sh)
+# Benchmarks:  Ubuntu 26.04 LTS | MariaDB 10.6 | Apache 2.4 | NGINX 3.0.0
+# Coverage:    549 Total CIS Controls across 4 Standardized Audit Programs
+# Repository:  https://github.com/nmwafa/cis-audit
+#
+# Quick Start (Direct Execution from GitHub):
+#   curl -sL https://github.com/nmwafa/cis-audit/raw/main/main.sh | sudo bash
+#   curl -s https://raw.githubusercontent.com/nmwafa/cis-audit/main/main.sh | sudo bash
+# ==============================================================================
+
+set -u
+
+SUITE_VERSION="1.3.0"
+REPO_OWNER="${CIS_AUDIT_REPO_OWNER:-nmwafa}"
+REPO_NAME="${CIS_AUDIT_REPO_NAME:-cis-audit}"
+REPO_BRANCH="${CIS_AUDIT_REPO_BRANCH:-main}"
+REPO_BASE_URL="${CIS_AUDIT_REPO_URL:-https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}}"
+
+# Determine local script directory if main.sh is executed from a local file
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+# Standardized Audit Script Filenames
+SCRIPT_UBUNTU="cis_ubuntu_26.04_audit.sh"
+SCRIPT_MARIADB="cis_mariadb_10.6_audit.sh"
+SCRIPT_APACHE="cis_apache_2.4_audit.sh"
+SCRIPT_NGINX="cis_nginx_benchmark_v3.0.0.sh"
+
+# ------------------------------------------------------------------------------
+# CLI Baseline Defaults (Profile Level is fixed to 'all' by default)
+# ------------------------------------------------------------------------------
+PROFILE_LEVEL="all"
+CLI_TARGET_SECTION="all"
+CLI_OUTPUT_FILE=""
+CLI_QUIET_OK=0
+CLI_USE_COLOR=1
+CLI_FORCE_COLOR="${FORCE_COLOR:-1}"
+RUN_ONCE=0
+CLI_TARGET=""
+EXTRA_ARGS=()
+
+# CLI-supplied service-specific defaults (empty = unmodified default behavior)
+CLI_MDB_USER=""
+CLI_MDB_PASS=""
+CLI_MDB_ASK_PASS=0
+CLI_MDB_HOST=""
+CLI_MDB_PORT=""
+CLI_MDB_SOCKET=""
+CLI_MDB_DEFAULTS_FILE=""
+CLI_MDB_CONFIG=""
+CLI_MDB_ADMIN_USERS=""
+CLI_MDB_REPL_USERS=""
+CLI_MDB_BACKUP_DIRS=""
+
+CLI_APACHE_PREFIX=""
+CLI_APACHE_CONFIG=""
+CLI_APACHE_BINARY=""
+CLI_APACHE_DOCROOT=""
+
+CLI_NGINX_CONFIG_DIR=""
+CLI_NGINX_BINARY=""
+CLI_NGINX_PORTS=""
+
+# Active session variables (initialized from CLI defaults before each audit menu)
+TARGET_SECTION="all"
+OUTPUT_FILE=""
+QUIET_OK=0
+USE_COLOR=1
+FORCE_COLOR=1
+
+MDB_USER=""
+MDB_PASS=""
+MDB_ASK_PASS=0
+MDB_HOST=""
+MDB_PORT=""
+MDB_SOCKET=""
+MDB_DEFAULTS_FILE=""
+MDB_CONFIG=""
+MDB_ADMIN_USERS=""
+MDB_REPL_USERS=""
+MDB_BACKUP_DIRS=""
+
+APACHE_PREFIX=""
+APACHE_CONFIG=""
+APACHE_BINARY=""
+APACHE_DOCROOT=""
+
+NGINX_CONFIG_DIR=""
+NGINX_BINARY=""
+NGINX_PORTS=""
+
+# Reset active options to default (unmodified) state so no custom changes
+# are executed unless the user explicitly desires them.
+reset_active_options() {
+    PROFILE_LEVEL="all"
+    TARGET_SECTION="$CLI_TARGET_SECTION"
+    OUTPUT_FILE="$CLI_OUTPUT_FILE"
+    QUIET_OK="$CLI_QUIET_OK"
+    USE_COLOR="$CLI_USE_COLOR"
+    FORCE_COLOR="$CLI_FORCE_COLOR"
+
+    MDB_USER="$CLI_MDB_USER"
+    MDB_PASS="$CLI_MDB_PASS"
+    MDB_ASK_PASS="$CLI_MDB_ASK_PASS"
+    MDB_HOST="$CLI_MDB_HOST"
+    MDB_PORT="$CLI_MDB_PORT"
+    MDB_SOCKET="$CLI_MDB_SOCKET"
+    MDB_DEFAULTS_FILE="$CLI_MDB_DEFAULTS_FILE"
+    MDB_CONFIG="$CLI_MDB_CONFIG"
+    MDB_ADMIN_USERS="$CLI_MDB_ADMIN_USERS"
+    MDB_REPL_USERS="$CLI_MDB_REPL_USERS"
+    MDB_BACKUP_DIRS="$CLI_MDB_BACKUP_DIRS"
+
+    APACHE_PREFIX="$CLI_APACHE_PREFIX"
+    APACHE_CONFIG="$CLI_APACHE_CONFIG"
+    APACHE_BINARY="$CLI_APACHE_BINARY"
+    APACHE_DOCROOT="$CLI_APACHE_DOCROOT"
+
+    NGINX_CONFIG_DIR="$CLI_NGINX_CONFIG_DIR"
+    NGINX_BINARY="$CLI_NGINX_BINARY"
+    NGINX_PORTS="$CLI_NGINX_PORTS"
+
+    setup_colors
+}
+
+# ------------------------------------------------------------------------------
+# Colors & Formatting (Standardized CIS Audit Suite Palette)
+# ------------------------------------------------------------------------------
+setup_colors() {
+    if [[ "$USE_COLOR" -eq 0 ]]; then
+        C_RESET=''
+        C_BOLD=''
+        C_DIM=''
+        C_RED=''
+        C_GREEN=''
+        C_YELLOW=''
+        C_BLUE=''
+        C_MAGENTA=''
+        C_CYAN=''
+        C_WHITE=''
+        C_BG_BLUE=''
+        C_BG_RED=''
+        C_BG_GREEN=''
+        C_BG_YELLOW=''
+    else
+        C_RESET=$'\033[0m'
+        C_BOLD=$'\033[1m'
+        C_DIM=$'\033[2m'
+        C_RED=$'\033[1;31m'
+        C_GREEN=$'\033[1;32m'
+        C_YELLOW=$'\033[1;33m'
+        C_BLUE=$'\033[1;34m'
+        C_MAGENTA=$'\033[1;35m'
+        C_CYAN=$'\033[1;36m'
+        C_WHITE=$'\033[1;37m'
+        C_BG_BLUE=$'\033[44;1;37m'
+        C_BG_RED=$'\033[41;1;37m'
+        C_BG_GREEN=$'\033[42;1;30m'
+        C_BG_YELLOW=$'\033[43;1;30m'
+    fi
+}
+
+usage() {
+    cat << 'EOF'
+Usage: main.sh [OPTIONS] [-- EXTRA_SCRIPT_ARGS...]
+
+Interactive, color-coded CLI launcher for the CIS Benchmark Security Audit Suite.
+Displays the main audit menu on startup. When an audit code (1-5) is selected,
+the list of sections and options for that specific audit program are displayed,
+with default settings pre-selected (all sections, Profile Level = all) so
+pressing [Enter] runs the audit with no custom changes unless desired.
+
+Direct Execution from GitHub:
+  curl -sL https://github.com/nmwafa/cis-audit/raw/main/main.sh | sudo bash
+  curl -s https://raw.githubusercontent.com/nmwafa/cis-audit/main/main.sh | sudo bash
+
+Universal CLI Options:
+  -t, --target <1..5|name>       Run target directly (1/ubuntu, 2/mariadb, 3/apache, 4/nginx, 5/all)
+  -s, --section <list|all>       Section(s) to audit: e.g. 1, 1,3,5, 2-4, or all (default: all)
+  -o, --output <file>            Save full audit report to <file>
+  -q, --quiet-ok                 Hide [OK] results and display only FAIL/MANUAL/SKIP findings
+  -n, --no-color                 Disable ANSI color output
+      --color                    Force ANSI color output even when piped
+  -r, --repo-url <url>           Override GitHub raw base URL for remote script fetching
+      --once                     Execute one audit selection and exit immediately
+  -h, --help                     Show this help message and exit
+
+MariaDB 10.6 CLI Options:
+      --db-user <USER>           MariaDB username for SQL audit queries
+      --db-pass <PASS>           MariaDB password (prefer --ask-pass or --defaults-file)
+  -W, --ask-pass                 Prompt interactively for MariaDB password
+      --db-host <HOST>           MariaDB host (default: local socket)
+      --db-port <PORT>           MariaDB port (default: 3306)
+      --db-socket <SOCKET>       Path to MariaDB unix socket file
+      --defaults-file <FILE>     Path to MariaDB client defaults file (e.g., ~/.my.cnf)
+      --db-config <FILE>         Path to primary MariaDB configuration file (e.g., /etc/mysql/mariadb.cnf)
+      --admin-users <LIST>       Comma-separated authorized DB admin users (default: root,mysql,mariadb.sys)
+      --repl-users <LIST>        Comma-separated authorized replication users (default: repl,replica,slave)
+      --backup-dirs <LIST>       Comma-separated backup directories to inspect
+
+Apache 2.4 CLI Options:
+      --apache-prefix <DIR>      Apache ServerRoot / prefix directory
+      --apache-config <FILE>     Main Apache configuration file (httpd.conf / apache2.conf)
+      --apache-binary <PATH>     Apache binary path (httpd / apache2)
+      --apache-docroot <DIR>     Apache DocumentRoot directory
+
+NGINX 3.0.0 CLI Options:
+      --nginx-config-dir <DIR>   NGINX configuration directory (default: /etc/nginx)
+      --nginx-binary <PATH>      NGINX binary path (default: auto-detected)
+      --nginx-ports <LIST>       Comma-separated list of authorized listen ports (default: 80,443)
+EOF
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -t|--target) CLI_TARGET="${2:-}"; RUN_ONCE=1; shift 2 ;;
+            -s|--section) CLI_TARGET_SECTION="${2:-all}"; shift 2 ;;
+            -o|--output) CLI_OUTPUT_FILE="${2:-}"; shift 2 ;;
+            -q|--quiet-ok) CLI_QUIET_OK=1; shift ;;
+            -n|--no-color) CLI_USE_COLOR=0; CLI_FORCE_COLOR=0; shift ;;
+            --color) CLI_USE_COLOR=1; CLI_FORCE_COLOR=1; shift ;;
+            -r|--repo-url) REPO_BASE_URL="${2%/}"; shift 2 ;;
+            --once) RUN_ONCE=1; shift ;;
+            # MariaDB options
+            --db-user) CLI_MDB_USER="${2:-}"; shift 2 ;;
+            --db-pass) CLI_MDB_PASS="${2:-}"; shift 2 ;;
+            -W|--ask-pass) CLI_MDB_ASK_PASS=1; shift ;;
+            --db-host) CLI_MDB_HOST="${2:-}"; shift 2 ;;
+            --db-port) CLI_MDB_PORT="${2:-}"; shift 2 ;;
+            --db-socket) CLI_MDB_SOCKET="${2:-}"; shift 2 ;;
+            --defaults-file) CLI_MDB_DEFAULTS_FILE="${2:-}"; shift 2 ;;
+            --db-config) CLI_MDB_CONFIG="${2:-}"; shift 2 ;;
+            --admin-users) CLI_MDB_ADMIN_USERS="${2:-}"; shift 2 ;;
+            --repl-users) CLI_MDB_REPL_USERS="${2:-}"; shift 2 ;;
+            --backup-dirs) CLI_MDB_BACKUP_DIRS="${2:-}"; shift 2 ;;
+            # Apache options
+            --apache-prefix) CLI_APACHE_PREFIX="${2:-}"; shift 2 ;;
+            --apache-config) CLI_APACHE_CONFIG="${2:-}"; shift 2 ;;
+            --apache-binary) CLI_APACHE_BINARY="${2:-}"; shift 2 ;;
+            --apache-docroot) CLI_APACHE_DOCROOT="${2:-}"; shift 2 ;;
+            # NGINX options
+            --nginx-config-dir) CLI_NGINX_CONFIG_DIR="${2:-}"; shift 2 ;;
+            --nginx-binary) CLI_NGINX_BINARY="${2:-}"; shift 2 ;;
+            --nginx-ports) CLI_NGINX_PORTS="${2:-}"; shift 2 ;;
+            -h|--help) usage; exit 0 ;;
+            --) shift; EXTRA_ARGS+=("$@"); break ;;
+            *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+        esac
+    done
+}
+
+# ------------------------------------------------------------------------------
+# Pipe-Safe Terminal Input Helpers (Supports `curl -s ... | bash`)
+# ------------------------------------------------------------------------------
+has_tty() {
+    ( : < /dev/tty ) 2>/dev/null
+}
+
+prompt_input() {
+    local prompt_str="$1"
+    local var_name="$2"
+    local secret="${3:-0}"
+    local input_val=""
+
+    local read_flags=(-r)
+    [[ "$secret" -eq 1 ]] && read_flags+=(-s)
+
+    if [[ -t 0 ]]; then
+        printf "%s" "$prompt_str"
+        IFS= read "${read_flags[@]}" input_val || return 1
+        [[ "$secret" -eq 1 ]] && echo ""
+    elif has_tty; then
+        printf "%s" "$prompt_str" > /dev/tty
+        IFS= read "${read_flags[@]}" input_val < /dev/tty || return 1
+        [[ "$secret" -eq 1 ]] && echo "" > /dev/tty
+    elif [[ -t 1 ]]; then
+        printf "%s" "$prompt_str"
+        IFS= read "${read_flags[@]}" input_val <&1 || return 1
+        [[ "$secret" -eq 1 ]] && echo ""
+    elif [[ -t 2 ]]; then
+        printf "%s" "$prompt_str" >&2
+        IFS= read "${read_flags[@]}" input_val <&2 || return 1
+        [[ "$secret" -eq 1 ]] && echo "" >&2
+    else
+        printf "%s" "$prompt_str"
+        IFS= read "${read_flags[@]}" input_val || return 1
+        [[ "$secret" -eq 1 ]] && echo ""
+    fi
+    printf -v "$var_name" "%s" "$input_val"
+    return 0
+}
+
+run_with_tty() {
+    if [[ -t 0 ]]; then
+        "$@"
+    elif has_tty; then
+        "$@" < /dev/tty
+    elif [[ -t 1 ]]; then
+        "$@" <&1
+    elif [[ -t 2 ]]; then
+        "$@" <&2
+    else
+        "$@"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Section List Definitions & Validation Helpers
+# ------------------------------------------------------------------------------
+UBUNTU_SECTIONS=(
+    "1:Initial Setup"
+    "2:Services"
+    "3:Network"
+    "4:Host Based Firewall"
+    "5:Access Control"
+    "6:Logging and Auditing"
+    "7:System Maintenance"
+)
+
+MARIADB_SECTIONS=(
+    "1:Operating System Level Configuration"
+    "2:Installation and Planning"
+    "3:File Permissions"
+    "4:General"
+    "5:MariaDB Permissions"
+    "6:Auditing and Logging"
+    "7:Authentication"
+    "8:Network"
+    "9:Replication"
+)
+
+APACHE_SECTIONS=(
+    "1:Planning and Installation"
+    "2:Minimize Apache Modules"
+    "3:Principles, Permissions, and Ownership"
+    "4:Apache Access Control"
+    "5:Minimize Features, Content and Options"
+    "6:Operations - Logging, Monitoring and Maintenance"
+    "7:SSL/TLS Configuration"
+    "8:Information Leakage"
+    "9:Denial of Service Mitigations"
+    "10:Request Limits"
+    "11:Enable SELinux to Restrict Apache Processes"
+    "12:Enable AppArmor to Restrict Apache Processes"
+)
+
+NGINX_SECTIONS=(
+    "1:Initial Setup"
+    "2:Basic Configuration"
+    "3:Logging"
+    "4:Encryption (TLS / SSL Configuration)"
+    "5:Request Filtering and Restrictions"
+    "6:Mandatory Access Control"
+)
+
+# Check if a section number is currently selected in TARGET_SECTION
+is_sec_active() {
+    local sec_num="$1"
+    local filter="${TARGET_SECTION:-all}"
+    [[ "${filter,,}" == "all" || -z "$filter" ]] && return 0
+
+    local item start end
+    local normalized="${filter// /,}"
+    IFS=',' read -ra items <<< "$normalized"
+    for item in "${items[@]}"; do
+        [[ -z "$item" ]] && continue
+        if [[ "$item" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+            start="${BASH_REMATCH[1]}"
+            end="${BASH_REMATCH[2]}"
+            if (( sec_num >= start && sec_num <= end )); then
+                return 0
+            fi
+        elif [[ "$item" == "$sec_num" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Validate and normalize a user-entered section selection (e.g. "all", "3", "1,3,5", "2-4")
+validate_section_input() {
+    local raw_in="$1"
+    local max_sec="$2"
+    local cleaned
+    cleaned="$(echo "$raw_in" | tr ' ' ',' | sed -E 's/,+/,/g; s/^,//; s/,$//')"
+
+    if [[ "${cleaned,,}" == "all" ]]; then
+        TARGET_SECTION="all"
+        return 0
+    fi
+
+    local item start end
+    IFS=',' read -ra items <<< "$cleaned"
+    [[ ${#items[@]} -eq 0 ]] && return 1
+
+    for item in "${items[@]}"; do
+        if [[ "$item" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+            start="${BASH_REMATCH[1]}"
+            end="${BASH_REMATCH[2]}"
+            if (( start < 1 || end > max_sec || start > end )); then
+                return 1
+            fi
+        elif [[ "$item" =~ ^[0-9]+$ ]]; then
+            if (( item < 1 || item > max_sec )); then
+                return 1
+            fi
+        else
+            return 1
+        fi
+    done
+
+    TARGET_SECTION="$cleaned"
+    return 0
+}
+
+# Render the numbered list of sections with [SELECTED] indicators
+print_sections_panel() {
+    local max_sec="$1"
+    shift
+    local sec_list=("$@")
+    local entry s_num s_title mark
+
+    echo -e "  ${C_YELLOW}${C_BOLD}Available CIS Benchmark Sections (Active Selection: ${C_WHITE}${TARGET_SECTION}${C_YELLOW}):${C_RESET}"
+    for entry in "${sec_list[@]}"; do
+        s_num="${entry%%:*}"
+        s_title="${entry#*:}"
+        if is_sec_active "$s_num"; then
+            mark="${C_GREEN}[SELECTED]${C_RESET}"
+        else
+            mark="${C_DIM}[        ]${C_RESET}"
+        fi
+        printf "    ${C_CYAN}${C_BOLD}[%-2s]${C_RESET} %-52s %b\n" "$s_num" "Section ${s_num}: ${s_title}" "$mark"
+    done
+    if [[ "${TARGET_SECTION,,}" == "all" ]]; then
+        mark="${C_GREEN}[DEFAULT ]${C_RESET}"
+    else
+        mark="${C_DIM}[        ]${C_RESET}"
+    fi
+    printf "    ${C_CYAN}${C_BOLD}[all]${C_RESET} %-51s %b\n" "Run All Sections (1-${max_sec})" "$mark"
+    echo -e "    ${C_DIM}Tip: Enter a section number (e.g. 1), multiple sections (e.g. 1,3,5), a range (e.g. 2-4), or 'all'.${C_RESET}"
+}
+
+# ------------------------------------------------------------------------------
+# Host Service Detection & Startup Menu
+# ------------------------------------------------------------------------------
+detect_host_services() {
+    if grep -qiE 'ubuntu|debian' /etc/os-release 2>/dev/null; then
+        BADGE_UBUNTU="${C_GREEN}[DETECTED]${C_RESET}"
+    else
+        BADGE_UBUNTU="${C_YELLOW}[LINUX OS]${C_RESET}"
+    fi
+
+    if command -v mariadbd >/dev/null 2>&1 || command -v mariadb >/dev/null 2>&1 || command -v mysqld >/dev/null 2>&1; then
+        BADGE_MARIADB="${C_GREEN}[DETECTED]${C_RESET}"
+    elif [[ -d /etc/mysql || -f /etc/my.cnf ]]; then
+        BADGE_MARIADB="${C_CYAN}[CONFIG FOUND]${C_RESET}"
+    else
+        BADGE_MARIADB="${C_DIM}[NOT INSTALLED]${C_RESET}"
+    fi
+
+    if command -v apache2 >/dev/null 2>&1 || command -v httpd >/dev/null 2>&1; then
+        BADGE_APACHE="${C_GREEN}[DETECTED]${C_RESET}"
+    elif [[ -d /etc/apache2 || -d /etc/httpd ]]; then
+        BADGE_APACHE="${C_CYAN}[CONFIG FOUND]${C_RESET}"
+    else
+        BADGE_APACHE="${C_DIM}[NOT INSTALLED]${C_RESET}"
+    fi
+
+    if command -v nginx >/dev/null 2>&1 || [[ -x /usr/sbin/nginx ]]; then
+        BADGE_NGINX="${C_GREEN}[DETECTED]${C_RESET}"
+    elif [[ -d /etc/nginx ]]; then
+        BADGE_NGINX="${C_CYAN}[CONFIG FOUND]${C_RESET}"
+    else
+        BADGE_NGINX="${C_DIM}[NOT INSTALLED]${C_RESET}"
+    fi
+
+    if [[ -n "$SCRIPT_DIR" && -f "${SCRIPT_DIR}/${SCRIPT_UBUNTU}" ]]; then
+        EXEC_SOURCE="Local Directory (${SCRIPT_DIR})"
+    else
+        EXEC_SOURCE="GitHub Remote Stream (${REPO_BASE_URL})"
+    fi
+}
+
+print_launcher_banner() {
+    detect_host_services
+    echo -e "${C_CYAN}${C_BOLD}"
+    cat << 'BANNER'
+   ____ ___ ____       _             _ _ _     ____        _ _       
+  / ___|_ _/ ___|     / \  _   _  __| (_) |_  / ___| _   _(_) |_ ___ 
+ | |    | |\___ \    / _ \| | | |/ _` | | __| \___ \| | | | | __/ _ \
+ | |___ | | ___) |  / ___ \ |_| | (_| | | |_   ___) | |_| | | ||  __/
+  \____|___|____/  /_/   \_\__,_|\__,_|_|\__| |____/ \__,_|_|\__\___|
+  
+BANNER
+    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "  ${C_BOLD}Hostname:${C_RESET}       $(hostname 2>/dev/null || echo 'unknown')"
+    echo -e "  ${C_BOLD}OS Release:${C_RESET}     $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || uname -sr)"
+    echo -e "  ${C_BOLD}Kernel:${C_RESET}         $(uname -r 2>/dev/null || echo 'unknown') ($(uname -m 2>/dev/null || echo 'unknown'))"
+    echo -e "  ${C_BOLD}Current User:${C_RESET}   $(id -un 2>/dev/null || echo 'unknown') (UID: $(id -u 2>/dev/null || echo '?'))"
+    echo -e "  ${C_BOLD}Audit Date:${C_RESET}     $(date -u '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)"
+    echo -e "  ${C_BOLD}Script Source:${C_RESET}  ${EXEC_SOURCE}"
+    if [[ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]]; then
+        echo -e "  ${C_YELLOW}[!] WARNING: Running as non-root user. Re-run with 'sudo' (e.g. '| sudo bash') for full visibility.${C_RESET}"
+    fi
+    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+}
+
+print_main_menu() {
+    echo -e "\n${C_BG_BLUE} [MAIN MENU] SELECT A CIS BENCHMARK AUDIT PROGRAM ${C_RESET}"
+    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    printf "  ${C_CYAN}${C_BOLD}[1]${C_RESET} %-47s ${C_DIM}%-18s${C_RESET} %b\n" \
+        "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0" "(350 Controls)" "$BADGE_UBUNTU"
+    printf "  ${C_CYAN}${C_BOLD}[2]${C_RESET} %-47s ${C_DIM}%-18s${C_RESET} %b\n" \
+        "CIS MariaDB 10.6 Benchmark v1.1.0" "( 74 Controls)" "$BADGE_MARIADB"
+    printf "  ${C_CYAN}${C_BOLD}[3]${C_RESET} %-47s ${C_DIM}%-18s${C_RESET} %b\n" \
+        "CIS Apache HTTP Server 2.4 Benchmark v2.4.0" "( 81 Controls)" "$BADGE_APACHE"
+    printf "  ${C_CYAN}${C_BOLD}[4]${C_RESET} %-47s ${C_DIM}%-18s${C_RESET} %b\n" \
+        "CIS NGINX Benchmark v3.0.0" "( 44 Controls)" "$BADGE_NGINX"
+    printf "  ${C_GREEN}${C_BOLD}[5]${C_RESET} ${C_BOLD}%-47s${C_RESET} ${C_DIM}%-18s${C_RESET} ${C_MAGENTA}[FULL SUITE]${C_RESET}\n" \
+        "Run All 4 CIS Benchmark Audits Sequentially" "(549 Controls)"
+    echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "  ${C_RED}${C_BOLD}[0]${C_RESET} Exit CIS Audit Launcher"
+    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+}
+
+# ------------------------------------------------------------------------------
+# Common Option Helpers (Quiet-OK, Output File, Color Output)
+# ------------------------------------------------------------------------------
+format_common_labels() {
+    if [[ "$QUIET_OK" -eq 1 ]]; then
+        QUIET_DISP="${C_YELLOW}ON (Hide [OK], show FAIL/MANUAL/SKIP only)${C_RESET}"
+    else
+        QUIET_DISP="OFF (default: show all checks)"
+    fi
+
+    if [[ "$USE_COLOR" -eq 1 ]]; then
+        COLOR_DISP="ON (default: ANSI colors enabled)"
+    else
+        COLOR_DISP="${C_DIM}OFF (Plain text output)${C_RESET}"
+    fi
+
+    OUT_DISP="${OUTPUT_FILE:-none (default: terminal stdout only)}"
+}
+
+handle_common_option_key() {
+    local key="$1"
+    local max_sec="$2"
+    case "$key" in
+        s|sec|section)
+            local val=""
+            prompt_input "  Enter Section(s) to run (e.g. 1, 1,3,5, 2-${max_sec}, or all) [${TARGET_SECTION}]: " val || return 1
+            val="$(echo "$val" | xargs)"
+            if [[ -n "$val" ]]; then
+                if validate_section_input "$val" "$max_sec"; then
+                    echo -e "  ${C_GREEN}[*] Selected Section(s): ${TARGET_SECTION}${C_RESET}"
+                else
+                    echo -e "  ${C_RED}[!] Invalid section selection '${val}'. Valid range: 1-${max_sec} or 'all'.${C_RESET}"
+                fi
+            fi
+            return 0
+            ;;
+        q|quiet)
+            if [[ "$QUIET_OK" -eq 0 ]]; then
+                QUIET_OK=1
+                echo -e "  ${C_GREEN}[*] Quiet-OK enabled ([OK] checks will be hidden).${C_RESET}"
+            else
+                QUIET_OK=0
+                echo -e "  ${C_GREEN}[*] Quiet-OK disabled (all checks will be shown).${C_RESET}"
+            fi
+            return 0
+            ;;
+        o|output)
+            local val=""
+            prompt_input "  Enter Output Report File Path (leave blank for none/stdout only): " val || return 1
+            OUTPUT_FILE="$(echo "$val" | xargs)"
+            return 0
+            ;;
+        c|color)
+            if [[ "$USE_COLOR" -eq 1 ]]; then
+                USE_COLOR=0
+                FORCE_COLOR=0
+                setup_colors
+                echo "  [*] ANSI color output disabled."
+            else
+                USE_COLOR=1
+                FORCE_COLOR=1
+                setup_colors
+                echo -e "  ${C_GREEN}[*] ANSI color output enabled.${C_RESET}"
+            fi
+            return 0
+            ;;
+    esac
+    return 2
+}
+
+# ------------------------------------------------------------------------------
+# Per-Audit Section & Option Menus (Displayed Only After Audit Code Is Selected)
+# ------------------------------------------------------------------------------
+
+# Audit Code 1: CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0
+menu_audit_ubuntu() {
+    reset_active_options
+    while true; do
+        format_common_labels
+        echo -e "\n${C_BG_BLUE} [AUDIT CODE 1] CIS UBUNTU LINUX 26.04 LTS v1.0.0 - SECTIONS & OPTIONS ${C_RESET}"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+        echo -e "  ${C_DIM}By default, all sections (Profile Level: all) run with no custom changes applied.${C_RESET}"
+        echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or choose sections/options below.${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        print_sections_panel 7 "${UBUNTU_SECTIONS[@]}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_YELLOW}${C_BOLD}Ubuntu Audit Options:${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[s]${C_RESET} Choose Section(s) (-s, --section) : ${C_WHITE}${TARGET_SECTION}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[q]${C_RESET} Quiet-OK Mode (-q, --quiet-ok)    : ${QUIET_DISP}"
+        echo -e "    ${C_CYAN}${C_BOLD}[o]${C_RESET} Output File (-o, --output)        : ${C_WHITE}${OUT_DISP}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[c]${C_RESET} Color Output (-n, --no-color)     : ${COLOR_DISP}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start Ubuntu 26.04 Audit Now   ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[b / 0]${C_RESET} Back"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+
+        local sub=""
+        prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, enter section(s) [1-7, 1,3, all], or option [s, q, o, c, d, b]: ${C_RESET}" sub || return 1
+        sub="$(echo "$sub" | xargs)"
+
+        if [[ -z "$sub" || "${sub,,}" == "r" || "${sub,,}" == "run" ]]; then
+            execute_audit_script "ubuntu" "$SCRIPT_UBUNTU" "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0"
+            return 0
+        elif [[ "${sub,,}" == "b" || "$sub" == "0" || "${sub,,}" == "back" ]]; then
+            return 2
+        elif [[ "${sub,,}" == "d" || "${sub,,}" == "reset" ]]; then
+            reset_active_options
+            echo -e "  ${C_GREEN}[*] Reset to default settings (all sections, default options).${C_RESET}"
+        elif validate_section_input "$sub" 7; then
+            echo -e "  ${C_GREEN}[*] Selected Section(s): ${TARGET_SECTION} (Press [Enter] to run audit)${C_RESET}"
+        else
+            handle_common_option_key "${sub,,}" 7
+            local rc=$?
+            [[ "$rc" -eq 1 ]] && return 1
+            if [[ "$rc" -eq 2 ]]; then
+                echo -e "  ${C_RED}[!] Invalid input '${sub}'. Enter section(s) (1-7, e.g. 1,3 or all), option [s,q,o,c,d,b], or [Enter] to run.${C_RESET}"
+            fi
+        fi
+    done
+}
+
+# Audit Code 2: CIS MariaDB 10.6 Benchmark v1.1.0
+menu_audit_mariadb() {
+    reset_active_options
+    while true; do
+        format_common_labels
+        local ask_disp="OFF (default)"
+        [[ "$MDB_ASK_PASS" -eq 1 ]] && ask_disp="${C_YELLOW}ON (Prompt interactively for password)${C_RESET}"
+        local pass_disp="not set (default)"
+        [[ -n "$MDB_PASS" ]] && pass_disp="******** (set)"
+
+        echo -e "\n${C_BG_BLUE} [AUDIT CODE 2] CIS MARIADB 10.6 BENCHMARK v1.1.0 - SECTIONS & OPTIONS ${C_RESET}"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+        echo -e "  ${C_DIM}By default, all sections (Profile Level: all) run with no custom changes applied.${C_RESET}"
+        echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or choose sections/options below.${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        print_sections_panel 9 "${MARIADB_SECTIONS[@]}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_YELLOW}${C_BOLD}General Audit Options:${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[s]${C_RESET} Choose Section(s) (-s, --section)    : ${C_WHITE}${TARGET_SECTION}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[q]${C_RESET} Quiet-OK Mode (-q, --quiet-ok)       : ${QUIET_DISP}"
+        echo -e "    ${C_CYAN}${C_BOLD}[o]${C_RESET} Output File (-o, --output)           : ${C_WHITE}${OUT_DISP}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[c]${C_RESET} Color Output (-n, --no-color)        : ${COLOR_DISP}"
+        echo -e "  ${C_YELLOW}${C_BOLD}MariaDB 10.6 Connection & Policy Options:${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[u]${C_RESET} DB Username (-u, --user)             : ${C_WHITE}${MDB_USER:-default (auto / current user)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[w]${C_RESET} Ask Password (-W, --ask-pass)        : ${ask_disp}"
+        echo -e "    ${C_CYAN}${C_BOLD}[p]${C_RESET} DB Password (-p, --password)         : ${C_WHITE}${pass_disp}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[h]${C_RESET} DB Host (-H, --host)                 : ${C_WHITE}${MDB_HOST:-default (local socket)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[P]${C_RESET} DB Port (-P, --port)                 : ${C_WHITE}${MDB_PORT:-default (3306)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[S]${C_RESET} Unix Socket (-S, --socket)           : ${C_WHITE}${MDB_SOCKET:-default (auto-detect)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[f]${C_RESET} Defaults File (-d, --defaults-file)  : ${C_WHITE}${MDB_DEFAULTS_FILE:-none (default)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[C]${C_RESET} Config File (-c, --config)           : ${C_WHITE}${MDB_CONFIG:-default (auto-detect)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[A]${C_RESET} Admin Users (-a, --admin-users)      : ${C_WHITE}${MDB_ADMIN_USERS:-root,mysql,mariadb.sys (default)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[R]${C_RESET} Repl Users (-r, --repl-users)        : ${C_WHITE}${MDB_REPL_USERS:-repl,replica,slave (default)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[B]${C_RESET} Backup Dirs (-b, --backup-dirs)      : ${C_WHITE}${MDB_BACKUP_DIRS:-default standard backup paths}${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start MariaDB 10.6 Audit Now   ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[b / 0]${C_RESET} Back"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+
+        local sub=""
+        prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, enter section(s) [1-9, 1,3, all], or option key: ${C_RESET}" sub || return 1
+        sub="$(echo "$sub" | xargs)"
+
+        if [[ -z "$sub" || "${sub,,}" == "r" && "$sub" != "R" || "${sub,,}" == "run" ]]; then
+            execute_audit_script "mariadb" "$SCRIPT_MARIADB" "CIS MariaDB 10.6 Benchmark v1.1.0"
+            return 0
+        elif [[ "${sub,,}" == "b" && "$sub" != "B" || "$sub" == "0" || "${sub,,}" == "back" ]]; then
+            return 2
+        elif [[ "${sub,,}" == "d" || "${sub,,}" == "reset" ]]; then
+            reset_active_options
+            echo -e "  ${C_GREEN}[*] Reset to default settings (all sections, default options).${C_RESET}"
+        elif validate_section_input "$sub" 9; then
+            echo -e "  ${C_GREEN}[*] Selected Section(s): ${TARGET_SECTION} (Press [Enter] to run audit)${C_RESET}"
+        else
+            case "$sub" in
+                u) prompt_input "  Enter MariaDB Username (leave blank for default): " MDB_USER || return 1 ;;
+                w|W)
+                    if [[ "$MDB_ASK_PASS" -eq 0 ]]; then MDB_ASK_PASS=1; else MDB_ASK_PASS=0; fi
+                    ;;
+                p) prompt_input "  Enter MariaDB Password (input hidden, leave blank for default): " MDB_PASS 1 || return 1 ;;
+                h|H) prompt_input "  Enter MariaDB Host (leave blank for default local socket): " MDB_HOST || return 1 ;;
+                P) prompt_input "  Enter MariaDB Port (leave blank for default 3306): " MDB_PORT || return 1 ;;
+                S) prompt_input "  Enter MariaDB Unix Socket Path (leave blank for default): " MDB_SOCKET || return 1 ;;
+                f) prompt_input "  Enter Client Defaults File Path (e.g. /root/.my.cnf, blank for none): " MDB_DEFAULTS_FILE || return 1 ;;
+                C) prompt_input "  Enter Primary MariaDB Config File Path (leave blank for auto-detect): " MDB_CONFIG || return 1 ;;
+                A) prompt_input "  Enter Authorized Admin Users (leave blank for default root,mysql,mariadb.sys): " MDB_ADMIN_USERS || return 1 ;;
+                R) prompt_input "  Enter Authorized Replication Users (leave blank for default repl,replica,slave): " MDB_REPL_USERS || return 1 ;;
+                B) prompt_input "  Enter Backup Directories List (leave blank for default paths): " MDB_BACKUP_DIRS || return 1 ;;
+                *)
+                    handle_common_option_key "${sub,,}" 9
+                    local rc=$?
+                    [[ "$rc" -eq 1 ]] && return 1
+                    if [[ "$rc" -eq 2 ]]; then
+                        echo -e "  ${C_RED}[!] Invalid input '${sub}'. Enter section(s) (1-9, e.g. 1,4 or all), an option key, or [Enter] to run.${C_RESET}"
+                    fi
+                    ;;
+            esac
+        fi
+    done
+}
+
+# Audit Code 3: CIS Apache HTTP Server 2.4 Benchmark v2.4.0
+menu_audit_apache() {
+    reset_active_options
+    while true; do
+        format_common_labels
+        echo -e "\n${C_BG_BLUE} [AUDIT CODE 3] CIS APACHE HTTP SERVER 2.4 v2.4.0 - SECTIONS & OPTIONS ${C_RESET}"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+        echo -e "  ${C_DIM}By default, all sections (Profile Level: all) run with no custom changes applied.${C_RESET}"
+        echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or choose sections/options below.${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        print_sections_panel 12 "${APACHE_SECTIONS[@]}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_YELLOW}${C_BOLD}General Audit Options:${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[s]${C_RESET} Choose Section(s) (-s, --section) : ${C_WHITE}${TARGET_SECTION}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[q]${C_RESET} Quiet-OK Mode (-q, --quiet-ok)    : ${QUIET_DISP}"
+        echo -e "    ${C_CYAN}${C_BOLD}[o]${C_RESET} Output File (-o, --output)        : ${C_WHITE}${OUT_DISP}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[c]${C_RESET} Color Output (-n, --no-color)     : ${COLOR_DISP}"
+        echo -e "  ${C_YELLOW}${C_BOLD}Apache 2.4 Environment Options:${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[p]${C_RESET} ServerRoot Prefix (-p, --prefix)  : ${C_WHITE}${APACHE_PREFIX:-default (auto-detect /etc/apache2 or /etc/httpd)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[f]${C_RESET} Main Config File (-c, --config)   : ${C_WHITE}${APACHE_CONFIG:-default (auto-detect httpd.conf / apache2.conf)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[B]${C_RESET} Apache Binary (-b, --binary)      : ${C_WHITE}${APACHE_BINARY:-default (auto-detect httpd / apache2)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[D]${C_RESET} DocumentRoot Dir (-d, --docroot)  : ${C_WHITE}${APACHE_DOCROOT:-default (auto-detect /var/www/html)}${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start Apache 2.4 Audit Now     ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[b / 0]${C_RESET} Back"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+
+        local sub=""
+        prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, enter section(s) [1-12, 1,7, all], or option [s,q,o,c,p,f,B,D,d,b]: ${C_RESET}" sub || return 1
+        sub="$(echo "$sub" | xargs)"
+
+        if [[ -z "$sub" || "${sub,,}" == "r" || "${sub,,}" == "run" ]]; then
+            execute_audit_script "apache" "$SCRIPT_APACHE" "CIS Apache HTTP Server 2.4 Benchmark v2.4.0"
+            return 0
+        elif [[ "$sub" == "b" || "$sub" == "0" || "${sub,,}" == "back" ]]; then
+            return 2
+        elif [[ "$sub" == "d" || "${sub,,}" == "reset" ]]; then
+            reset_active_options
+            echo -e "  ${C_GREEN}[*] Reset to default settings (all sections, default options).${C_RESET}"
+        elif validate_section_input "$sub" 12; then
+            echo -e "  ${C_GREEN}[*] Selected Section(s): ${TARGET_SECTION} (Press [Enter] to run audit)${C_RESET}"
+        else
+            case "$sub" in
+                p) prompt_input "  Enter Apache ServerRoot / Prefix directory (leave blank for default): " APACHE_PREFIX || return 1 ;;
+                f) prompt_input "  Enter Main Apache Config File path (leave blank for default): " APACHE_CONFIG || return 1 ;;
+                B) prompt_input "  Enter Apache Binary path (leave blank for default): " APACHE_BINARY || return 1 ;;
+                D) prompt_input "  Enter Apache DocumentRoot directory (leave blank for default): " APACHE_DOCROOT || return 1 ;;
+                *)
+                    handle_common_option_key "${sub,,}" 12
+                    local rc=$?
+                    [[ "$rc" -eq 1 ]] && return 1
+                    if [[ "$rc" -eq 2 ]]; then
+                        echo -e "  ${C_RED}[!] Invalid input '${sub}'. Enter section(s) (1-12, e.g. 1,7 or all), an option key, or [Enter] to run.${C_RESET}"
+                    fi
+                    ;;
+            esac
+        fi
+    done
+}
+
+# Audit Code 4: CIS NGINX Benchmark v3.0.0
+menu_audit_nginx() {
+    reset_active_options
+    while true; do
+        format_common_labels
+        echo -e "\n${C_BG_BLUE} [AUDIT CODE 4] CIS NGINX BENCHMARK v3.0.0 - SECTIONS & OPTIONS ${C_RESET}"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+        echo -e "  ${C_DIM}By default, all sections (Profile Level: all) run with no custom changes applied.${C_RESET}"
+        echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or choose sections/options below.${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        print_sections_panel 6 "${NGINX_SECTIONS[@]}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_YELLOW}${C_BOLD}General Audit Options:${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[s]${C_RESET} Choose Section(s) (-s, --section)    : ${C_WHITE}${TARGET_SECTION}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[q]${C_RESET} Quiet-OK Mode (-q, --quiet-ok)       : ${QUIET_DISP}"
+        echo -e "    ${C_CYAN}${C_BOLD}[o]${C_RESET} Output File (-o, --output)           : ${C_WHITE}${OUT_DISP}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[c]${C_RESET} Color Output (-n, --no-color)        : ${COLOR_DISP}"
+        echo -e "  ${C_YELLOW}${C_BOLD}NGINX 3.0.0 Environment Options:${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[f]${C_RESET} Config Directory (-c, --config-dir)  : ${C_WHITE}${NGINX_CONFIG_DIR:-default (auto-detect /etc/nginx)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[B]${C_RESET} NGINX Binary Path (-b, --binary)     : ${C_WHITE}${NGINX_BINARY:-default (auto-detect from PATH)}${C_RESET}"
+        echo -e "    ${C_CYAN}${C_BOLD}[p]${C_RESET} Authorized Ports (-p, --ports)       : ${C_WHITE}${NGINX_PORTS:-80,443 (default)}${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start NGINX 3.0.0 Audit Now    ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[b / 0]${C_RESET} Back"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+
+        local sub=""
+        prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, enter section(s) [1-6, 1,4, all], or option [s,q,o,c,f,B,p,d,b]: ${C_RESET}" sub || return 1
+        sub="$(echo "$sub" | xargs)"
+
+        if [[ -z "$sub" || "${sub,,}" == "r" || "${sub,,}" == "run" ]]; then
+            execute_audit_script "nginx" "$SCRIPT_NGINX" "CIS NGINX Benchmark v3.0.0"
+            return 0
+        elif [[ "$sub" == "b" || "$sub" == "0" || "${sub,,}" == "back" ]]; then
+            return 2
+        elif [[ "${sub,,}" == "d" || "${sub,,}" == "reset" ]]; then
+            reset_active_options
+            echo -e "  ${C_GREEN}[*] Reset to default settings (all sections, default options).${C_RESET}"
+        elif validate_section_input "$sub" 6; then
+            echo -e "  ${C_GREEN}[*] Selected Section(s): ${TARGET_SECTION} (Press [Enter] to run audit)${C_RESET}"
+        else
+            case "$sub" in
+                f) prompt_input "  Enter NGINX Config Directory (leave blank for default /etc/nginx): " NGINX_CONFIG_DIR || return 1 ;;
+                B) prompt_input "  Enter NGINX Binary Path (leave blank for default): " NGINX_BINARY || return 1 ;;
+                p) prompt_input "  Enter Authorized Listen Ports (leave blank for default 80,443): " NGINX_PORTS || return 1 ;;
+                *)
+                    handle_common_option_key "${sub,,}" 6
+                    local rc=$?
+                    [[ "$rc" -eq 1 ]] && return 1
+                    if [[ "$rc" -eq 2 ]]; then
+                        echo -e "  ${C_RED}[!] Invalid input '${sub}'. Enter section(s) (1-6, e.g. 1,4 or all), an option key, or [Enter] to run.${C_RESET}"
+                    fi
+                    ;;
+            esac
+        fi
+    done
+}
+
+# Audit Code 5: Run All 4 CIS Benchmark Audits Sequentially
+menu_audit_all() {
+    reset_active_options
+    while true; do
+        format_common_labels
+        echo -e "\n${C_BG_BLUE} [AUDIT CODE 5] FULL CIS SUITE (ALL 4 BENCHMARKS) - AUDIT OPTIONS ${C_RESET}"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+        echo -e "  ${C_DIM}By default, all sections across all 4 CIS benchmarks run with standard settings.${C_RESET}"
+        echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option to customize.${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_CYAN}${C_BOLD}[q]${C_RESET} Quiet-OK Mode (-q, --quiet-ok) : ${QUIET_DISP}"
+        echo -e "  ${C_CYAN}${C_BOLD}[o]${C_RESET} Output File (-o, --output)     : ${C_WHITE}${OUT_DISP}${C_RESET}"
+        echo -e "  ${C_CYAN}${C_BOLD}[c]${C_RESET} Color Output (-n, --no-color)  : ${COLOR_DISP}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start All 4 Audits Now         ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[b / 0]${C_RESET} Back"
+        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+
+        local sub=""
+        prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to execute all audits, or select option [q, o, c, d, b]: ${C_RESET}" sub || return 1
+        sub="$(echo "$sub" | xargs)"
+        case "${sub,,}" in
+            ""|r|run)
+                execute_audit_script "ubuntu" "$SCRIPT_UBUNTU" "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0"
+                execute_audit_script "mariadb" "$SCRIPT_MARIADB" "CIS MariaDB 10.6 Benchmark v1.1.0"
+                execute_audit_script "apache" "$SCRIPT_APACHE" "CIS Apache HTTP Server 2.4 Benchmark v2.4.0"
+                execute_audit_script "nginx" "$SCRIPT_NGINX" "CIS NGINX Benchmark v3.0.0"
+                return 0
+                ;;
+            q|o|c)
+                handle_common_option_key "${sub,,}" 12 || return 1
+                ;;
+            d|reset)
+                reset_active_options
+                echo -e "  ${C_GREEN}[*] Options reset to default values.${C_RESET}"
+                ;;
+            b|0|back)
+                return 2
+                ;;
+            *)
+                echo -e "  ${C_RED}[!] Invalid option '${sub}'. Press [Enter] to run or choose q, o, c, d, b.${C_RESET}"
+                ;;
+        esac
+    done
+}
+
+# ------------------------------------------------------------------------------
+# Argument Builder & Script Execution Engine
+# ------------------------------------------------------------------------------
+# Profile Level is always 'all' by default; optional flags are only passed if modified.
+build_child_args() {
+    local target_key="$1"
+    CHILD_ARGS=()
+
+    if [[ "$USE_COLOR" -eq 1 ]]; then
+        CHILD_ARGS+=("--color")
+    else
+        CHILD_ARGS+=("--no-color")
+    fi
+
+    CHILD_ARGS+=("--level" "all")
+    [[ "$TARGET_SECTION" != "all" ]] && CHILD_ARGS+=("--section" "$TARGET_SECTION")
+    [[ "$QUIET_OK" -eq 1 ]] && CHILD_ARGS+=("--quiet-ok")
+    [[ -n "$OUTPUT_FILE" ]] && CHILD_ARGS+=("--output" "$OUTPUT_FILE")
+
+    case "$target_key" in
+        mariadb)
+            [[ -n "$MDB_USER" ]] && CHILD_ARGS+=("--user" "$MDB_USER")
+            [[ -n "$MDB_PASS" ]] && CHILD_ARGS+=("--password" "$MDB_PASS")
+            [[ "$MDB_ASK_PASS" -eq 1 ]] && CHILD_ARGS+=("--ask-pass")
+            [[ -n "$MDB_HOST" ]] && CHILD_ARGS+=("--host" "$MDB_HOST")
+            [[ -n "$MDB_PORT" ]] && CHILD_ARGS+=("--port" "$MDB_PORT")
+            [[ -n "$MDB_SOCKET" ]] && CHILD_ARGS+=("--socket" "$MDB_SOCKET")
+            [[ -n "$MDB_DEFAULTS_FILE" ]] && CHILD_ARGS+=("--defaults-file" "$MDB_DEFAULTS_FILE")
+            [[ -n "$MDB_CONFIG" ]] && CHILD_ARGS+=("--config" "$MDB_CONFIG")
+            [[ -n "$MDB_ADMIN_USERS" ]] && CHILD_ARGS+=("--admin-users" "$MDB_ADMIN_USERS")
+            [[ -n "$MDB_REPL_USERS" ]] && CHILD_ARGS+=("--repl-users" "$MDB_REPL_USERS")
+            [[ -n "$MDB_BACKUP_DIRS" ]] && CHILD_ARGS+=("--backup-dirs" "$MDB_BACKUP_DIRS")
+            ;;
+        apache)
+            [[ -n "$APACHE_PREFIX" ]] && CHILD_ARGS+=("--prefix" "$APACHE_PREFIX")
+            [[ -n "$APACHE_CONFIG" ]] && CHILD_ARGS+=("--config" "$APACHE_CONFIG")
+            [[ -n "$APACHE_BINARY" ]] && CHILD_ARGS+=("--binary" "$APACHE_BINARY")
+            [[ -n "$APACHE_DOCROOT" ]] && CHILD_ARGS+=("--docroot" "$APACHE_DOCROOT")
+            ;;
+        nginx)
+            [[ -n "$NGINX_CONFIG_DIR" ]] && CHILD_ARGS+=("--config-dir" "$NGINX_CONFIG_DIR")
+            [[ -n "$NGINX_BINARY" ]] && CHILD_ARGS+=("--binary" "$NGINX_BINARY")
+            [[ -n "$NGINX_PORTS" ]] && CHILD_ARGS+=("--ports" "$NGINX_PORTS")
+            ;;
+    esac
+
+    if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
+        CHILD_ARGS+=("${EXTRA_ARGS[@]}")
+    fi
+}
+
+execute_audit_script() {
+    local target_key="$1"
+    local script_name="$2"
+    local display_name="$3"
+
+    build_child_args "$target_key"
+
+    echo -e "\n${C_CYAN}${C_BOLD}[*] Launching ${display_name} (${script_name})...${C_RESET}"
+    echo -e "${C_DIM}    Active Flags: ${CHILD_ARGS[*]}${C_RESET}"
+
+    # 1. Check if script exists in local SCRIPT_DIR or current working directory
+    local local_path=""
+    if [[ -n "$SCRIPT_DIR" && -f "${SCRIPT_DIR}/${script_name}" ]]; then
+        local_path="${SCRIPT_DIR}/${script_name}"
+    elif [[ -f "./${script_name}" ]]; then
+        local_path="./${script_name}"
+    fi
+
+    if [[ -n "$local_path" ]]; then
+        echo -e "${C_DIM}    Source: Local file (${local_path})${C_RESET}"
+        run_with_tty bash "$local_path" "${CHILD_ARGS[@]}"
+        return $?
+    fi
+
+    # 2. Otherwise download from GitHub repository into a temporary file and execute
+    local candidate_urls=(
+        "${REPO_BASE_URL}/${script_name}"
+        "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/${script_name}"
+        "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/master/${script_name}"
+        "https://github.com/${REPO_OWNER}/${REPO_NAME}/raw/main/${script_name}"
+    )
+
+    local tmp_script
+    tmp_script="$(mktemp "/tmp/${script_name}.XXXXXX" 2>/dev/null || echo "/tmp/${script_name}.$$")"
+    local downloaded=0
+    local url
+
+    for url in "${candidate_urls[@]}"; do
+        echo -e "${C_DIM}    Fetching: ${url}${C_RESET}"
+        if command -v curl >/dev/null 2>&1; then
+            if curl -fsSL "$url" -o "$tmp_script" 2>/dev/null && [[ -s "$tmp_script" ]] && head -n 1 "$tmp_script" | grep -q "bash"; then
+                downloaded=1
+                break
+            fi
+        elif command -v wget >/dev/null 2>&1; then
+            if wget -qO "$tmp_script" "$url" 2>/dev/null && [[ -s "$tmp_script" ]] && head -n 1 "$tmp_script" | grep -q "bash"; then
+                downloaded=1
+                break
+            fi
+        else
+            echo -e "${C_RED}[!] Error: Neither 'curl' nor 'wget' is installed to download ${script_name}.${C_RESET}" >&2
+            rm -f "$tmp_script"
+            return 1
+        fi
+    done
+
+    if [[ "$downloaded" -eq 0 ]]; then
+        echo -e "${C_RED}[!] Failed to download ${script_name} from GitHub (${REPO_BASE_URL}/${script_name}).${C_RESET}" >&2
+        echo -e "${C_YELLOW}    Ensure the repository is public and reachable, or set CIS_AUDIT_REPO_URL.${C_RESET}" >&2
+        rm -f "$tmp_script"
+        return 1
+    fi
+
+    chmod +x "$tmp_script" 2>/dev/null || true
+    local rc=0
+    run_with_tty bash "$tmp_script" "${CHILD_ARGS[@]}" || rc=$?
+    rm -f "$tmp_script"
+    return "$rc"
+}
+
+run_direct_target() {
+    local opt="$1"
+    reset_active_options
+    case "${opt,,}" in
+        1|ubuntu)
+            execute_audit_script "ubuntu" "$SCRIPT_UBUNTU" "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0"
+            ;;
+        2|mariadb|mysql)
+            execute_audit_script "mariadb" "$SCRIPT_MARIADB" "CIS MariaDB 10.6 Benchmark v1.1.0"
+            ;;
+        3|apache|httpd)
+            execute_audit_script "apache" "$SCRIPT_APACHE" "CIS Apache HTTP Server 2.4 Benchmark v2.4.0"
+            ;;
+        4|nginx)
+            execute_audit_script "nginx" "$SCRIPT_NGINX" "CIS NGINX Benchmark v3.0.0"
+            ;;
+        5|all)
+            execute_audit_script "ubuntu" "$SCRIPT_UBUNTU" "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0"
+            execute_audit_script "mariadb" "$SCRIPT_MARIADB" "CIS MariaDB 10.6 Benchmark v1.1.0"
+            execute_audit_script "apache" "$SCRIPT_APACHE" "CIS Apache HTTP Server 2.4 Benchmark v2.4.0"
+            execute_audit_script "nginx" "$SCRIPT_NGINX" "CIS NGINX Benchmark v3.0.0"
+            ;;
+        *)
+            return 2
+            ;;
+    esac
+    return 0
+}
+
+post_audit_prompt() {
+    if [[ "$RUN_ONCE" -eq 1 ]]; then
+        return 1
+    fi
+    echo ""
+    local cont=""
+    if ! prompt_input "${C_BOLD}${C_YELLOW}Press [Enter] to return to the main menu, or [0/q] to exit: ${C_RESET}" cont; then
+        echo ""
+        return 1
+    fi
+    if [[ "${cont,,}" == "0" || "${cont,,}" == "q" || "${cont,,}" == "exit" ]]; then
+        echo -e "${C_GREEN}[*] Exiting CIS Benchmark Security Audit Launcher.${C_RESET}"
+        return 1
+    fi
+    return 0
+}
+
+interactive_loop() {
+    reset_active_options
+    print_launcher_banner
+
+    while true; do
+        print_main_menu
+        local choice=""
+        if ! prompt_input "${C_BOLD}${C_CYAN}Select an audit code [1-5, or 0 to exit]: ${C_RESET}" choice; then
+            echo ""
+            break
+        fi
+        choice="$(echo "$choice" | xargs)"
+
+        local menu_rc=0
+        case "${choice,,}" in
+            1|ubuntu)
+                menu_audit_ubuntu || menu_rc=$?
+                ;;
+            2|mariadb|mysql)
+                menu_audit_mariadb || menu_rc=$?
+                ;;
+            3|apache|httpd)
+                menu_audit_apache || menu_rc=$?
+                ;;
+            4|nginx)
+                menu_audit_nginx || menu_rc=$?
+                ;;
+            5|all)
+                menu_audit_all || menu_rc=$?
+                ;;
+            0|q|exit|quit)
+                echo -e "${C_GREEN}[*] Exiting CIS Benchmark Security Audit Launcher.${C_RESET}"
+                break
+                ;;
+            "")
+                continue
+                ;;
+            *)
+                echo -e "${C_RED}[!] Invalid selection '${choice}'. Please select audit code 1-5, or 0 to exit.${C_RESET}"
+                continue
+                ;;
+        esac
+
+        if [[ "$menu_rc" -eq 1 ]]; then
+            echo ""
+            break
+        elif [[ "$menu_rc" -eq 0 ]]; then
+            post_audit_prompt || break
+        fi
+    done
+}
+
+main() {
+    parse_args "$@"
+    reset_active_options
+
+    if [[ -n "$CLI_TARGET" ]]; then
+        print_launcher_banner
+        if ! run_direct_target "$CLI_TARGET"; then
+            echo -e "${C_RED}[!] Unknown audit target: ${CLI_TARGET}${C_RESET}" >&2
+            usage >&2
+            exit 1
+        fi
+        exit 0
+    fi
+
+    interactive_loop
+}
+
+main "$@"
