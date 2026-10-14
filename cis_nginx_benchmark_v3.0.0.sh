@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # CIS NGINX Benchmark v3.0.0 - Standalone Security Audit Script
-# Style:       Standalone / Agentless (LinPEAS / LinEnum Inspired)
 # Benchmark:   CIS NGINX Benchmark v3.0.0 (12-24-2025)
 # Coverage:    All 44 Recommendations (Sections 1 through 6, Level 1 & Level 2)
 # Repository:  https://github.com/nmwafa/cis-audit
@@ -2229,9 +2228,9 @@ run_section_6() {
 
 print_summary() {
     echo -e "\n${C_BG_BLUE} [SUMMARY] ${BENCHMARK_NAME^^} AUDIT REPORT ${C_RESET}"
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
     printf "  %-36s | %7s | %7s | %7s | %7s | %7s\n" "Section" "OK" "FAIL" "MANUAL" "SKIP" "Total"
-    echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_DIM}------------------------------------------------------------------------------------------${C_RESET}"
     local s_names=(
         ""
         "1. Initial Setup"
@@ -2251,7 +2250,7 @@ print_summary() {
         [[ "$tot" -eq 0 ]] && ! is_section_selected "$s" && continue
         printf "  %-36s | %7d | %7d | %7d | %7d | %7d\n" "${s_names[$s]}" "$ok" "$fl" "$mn" "$sk" "$tot"
     done
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
     echo -e "  ${C_BOLD}Total Checks Executed:${C_RESET}  ${TOTAL_CHECKS}"
     echo -e "  ${C_GREEN}${C_BOLD}[OK] Compliant:${C_RESET}         ${COUNT_OK}"
     echo -e "  ${C_RED}${C_BOLD}[FAIL] Non-Compliant:${C_RESET}   ${COUNT_FAIL}"
@@ -2261,7 +2260,7 @@ print_summary() {
         local pct=$(( (COUNT_OK * 100) / TOTAL_CHECKS ))
         echo -e "  ${C_CYAN}${C_BOLD}Automated Pass Rate:${C_RESET}    ${pct}% (${COUNT_OK}/${TOTAL_CHECKS})"
     fi
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
 }
 
 main() {

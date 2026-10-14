@@ -497,7 +497,7 @@ print_launcher_banner() {
   \____|___|____/  /_/   \_\__,_|\__,_|_|\__| |____/ \__,_|_|\__\___|
   
 BANNER
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
     echo -e "  ${C_BOLD}Hostname:${C_RESET}       $(hostname 2>/dev/null || echo 'unknown')"
     echo -e "  ${C_BOLD}OS Release:${C_RESET}     $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || uname -sr)"
     echo -e "  ${C_BOLD}Kernel:${C_RESET}         $(uname -r 2>/dev/null || echo 'unknown') ($(uname -m 2>/dev/null || echo 'unknown'))"
@@ -507,12 +507,12 @@ BANNER
     if [[ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]]; then
         echo -e "  ${C_YELLOW}[!] WARNING: Running as non-root user. Re-run with 'sudo' (e.g. '| sudo bash') for full visibility.${C_RESET}"
     fi
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
 }
 
 print_main_menu() {
     echo -e "\n${C_BG_BLUE} [MAIN MENU] SELECT A CIS BENCHMARK AUDIT PROGRAM ${C_RESET}"
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
     printf "  ${C_CYAN}${C_BOLD}[1]${C_RESET} %-47s ${C_DIM}%-18s${C_RESET} %b\n" \
         "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0" "(350 Controls)" "$BADGE_UBUNTU"
     printf "  ${C_CYAN}${C_BOLD}[2]${C_RESET} %-47s ${C_DIM}%-18s${C_RESET} %b\n" \
@@ -523,9 +523,9 @@ print_main_menu() {
         "CIS NGINX Benchmark v3.0.0" "( 44 Controls)" "$BADGE_NGINX"
     printf "  ${C_GREEN}${C_BOLD}[5]${C_RESET} ${C_BOLD}%-47s${C_RESET} ${C_DIM}%-18s${C_RESET} ${C_MAGENTA}[FULL SUITE]${C_RESET}\n" \
         "Run All 4 CIS Benchmark Audits Sequentially" "(549 Controls)"
-    echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_DIM}------------------------------------------------------------------------------------------${C_RESET}"
     echo -e "  ${C_RED}${C_BOLD}[0]${C_RESET} Exit CIS Audit Launcher"
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
 }
 
 # ------------------------------------------------------------------------------
@@ -608,20 +608,20 @@ menu_audit_ubuntu() {
     while true; do
         format_common_labels
         echo -e "\n${C_BG_BLUE} [AUDIT CODE 1] CIS UBUNTU LINUX 26.04 LTS v1.0.0 - SECTIONS & OPTIONS ${C_RESET}"
-        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+        echo -e "${C_BLUE}==========================================================================================${C_RESET}"
         echo -e "  ${C_DIM}By default, all sections (Profile Level: all) run with no custom changes applied.${C_RESET}"
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or choose sections/options below.${C_RESET}"
-        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------------${C_RESET}"
         print_sections_panel 7 "${UBUNTU_SECTIONS[@]}"
-        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------------${C_RESET}"
         echo -e "  ${C_YELLOW}${C_BOLD}Ubuntu Audit Options:${C_RESET}"
         echo -e "    ${C_CYAN}${C_BOLD}[s]${C_RESET} Choose Section(s) (-s, --section) : ${C_WHITE}${TARGET_SECTION}${C_RESET}"
         echo -e "    ${C_CYAN}${C_BOLD}[q]${C_RESET} Quiet-OK Mode (-q, --quiet-ok)    : ${QUIET_DISP}"
         echo -e "    ${C_CYAN}${C_BOLD}[o]${C_RESET} Output File (-o, --output)        : ${C_WHITE}${OUT_DISP}${C_RESET}"
         echo -e "    ${C_CYAN}${C_BOLD}[c]${C_RESET} Color Output (-n, --no-color)     : ${COLOR_DISP}"
-        echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+        echo -e "${C_DIM}------------------------------------------------------------------------------------------${C_RESET}"
         echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start Ubuntu 26.04 Audit Now   ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[b / 0]${C_RESET} Back"
-        echo -e "${C_BLUE}====================================================================================${C_RESET}"
+        echo -e "${C_BLUE}==========================================================================================${C_RESET}"
 
         local sub=""
         prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, enter section(s) [1-7, 1,3, all], or option [s, q, o, c, d, b]: ${C_RESET}" sub || return 1
