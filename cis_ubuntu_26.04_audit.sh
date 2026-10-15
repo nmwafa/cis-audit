@@ -3890,7 +3890,7 @@ run_section_6() {
         else
             report_fail "6.2.3.34" "Ensure the audit configuration is loaded regardless of errors" "L2" "Automated" \
                 "'-c' flag is not present in /etc/audit/rules.d/*.rules" \
-                "Run: printf '\n%s\n' '-c' >> /etc/audit/rules.d/01-initialize.rules && augenrules --load"
+                "Edit or create the file /etc/audit/rules.d/01-initialize.rules and add the line '-c' at the end of the file, then run: augenrules --load"
         fi
     fi
 
@@ -3901,7 +3901,7 @@ run_section_6() {
         else
             report_fail "6.2.3.35" "Ensure the audit configuration is immutable" "L2" "Automated" \
                 "'-e 2' flag is not present in /etc/audit/rules.d/*.rules or auditd running state is not 'enabled 2'" \
-                "Run: printf '\n%s\n' '-e 2' >> /etc/audit/rules.d/99-finalize.rules && augenrules --load"
+                "Edit or create the file /etc/audit/rules.d/99-finalize.rules and add the line '-e 2' at the end of the file, then run: augenrules --load"
         fi
     fi
 
