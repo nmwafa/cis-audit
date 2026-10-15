@@ -337,7 +337,7 @@ print_banner() {
   \____|___|____/  |_|  |_|\__,_|_|  |_|\__,_|____/|____/  |_(_)\___/  \___/  
    
 BANNER
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}==================================================================================================${C_RESET}"
     echo -e "  ${C_BOLD}Benchmark:${C_RESET}      ${BENCHMARK_NAME} (03-29-2024)"
     echo -e "  ${C_BOLD}Hostname:${C_RESET}       ${HOSTNAME_VAL}"
     echo -e "  ${C_BOLD}OS Release:${C_RESET}     $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || uname -sr)"
@@ -355,7 +355,7 @@ BANNER
     if [[ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]]; then
         echo -e "  ${C_YELLOW}[!] WARNING: Script is not running as root (UID 0). Some filesystem and OS checks require root privileges for accurate results.${C_RESET}"
     fi
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}==================================================================================================${C_RESET}"
 }
 
 # ==============================================================================
