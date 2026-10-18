@@ -4,74 +4,98 @@ Standalone, zero-install, read-only Bash security auditing suite and interactive
 
 ## Quick Start (Run Directly from GitHub)
 
-Run the interactive CLI launcher directly on any target Linux host using `curl`:
+Run the interactive launcher on a Linux host with `curl` and Bash:
 
 ```bash
 curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash
 ```
 
-Or using the GitHub raw content endpoint directly:
+Or use the GitHub raw content endpoint:
 
 ```bash
 curl -s https://raw.githubusercontent.com/nmwafa/cis-audit/main/audit.sh | sudo bash
 ```
 
-To bypass the interactive menu and run a specific benchmark directly from the command line, pass `--target` via `bash -s --`:
+The launcher fetches the selected audit script from the repository when needed. To run a benchmark directly without the interactive menu, pass `--target`:
 
 ```bash
-# Run CIS Ubuntu Linux 26.04 LTS Audit (all sections by default)
+# Ubuntu Linux 26.04 LTS
 curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 1
 
-# Run CIS Ubuntu Linux 24.04 LTS Audit (all sections by default)
-curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 2
+# Ubuntu Linux 24.04 LTS, Level 1 profile only
+curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 2 --level 1
 
-# Run CIS MariaDB 10.6 Audit with custom DB user and interactive password prompt
+# MariaDB 10.6; prompt securely for the database password
 curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 3 --db-user root --ask-pass
 
-# Run CIS Apache 2.4 Audit in Quiet-OK mode
-curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 4 --quiet-ok
+# Apache HTTP Server 2.4; save the report to a file
+curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 4 --output apache-audit.txt
 
-# Run CIS NGINX 3.0.0 Audit with custom authorized ports
+# NGINX; specify authorized listen ports
 curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 5 --nginx-ports 80,443,8443
 ```
 
-## Two-Step Interactive Launcher Flow
+Run `audit.sh --help` for the full command-line option list. When piping the launcher from `curl`, append arguments after `bash -s --`.
 
-1. **Main Menu on Startup**: Clears the screen, displays the launcher banner, and lists the available CIS Benchmark audit programs (`[1]`–`[6]`) along with live host service detection badges (`[DETECTED]`, `[CONFIG FOUND]`, or `[NOT INSTALLED]`). Returning to the main menu automatically clears the screen and refreshes the banner.
+## Interactive Launcher
 
-2. **Numbered Pre-Audit Options Menu**: When you select an audit code (`1`–`6`), the launcher displays a clean, numbered list of options (`[1]`, `[2]`, `[3]`, ...) specific to that audit program. All sections and all profile levels (`all`) are included automatically.
+1. **Main menu:** The launcher lists audit selections `[1]`–`[6]` and displays host service detection badges (`[DETECTED]`, `[CONFIG FOUND]`, or `[NOT INSTALLED]`). Returning to the menu refreshes its display and detection results.
+2. **Pre-audit options:** After choosing an audit, the launcher lets you set its profile level and applicable output, display, and target-specific settings. By default, it audits all sections and all profile levels.
+3. **Run or customize:** Press **Enter** (or `r`) to start with the current settings, or choose a numbered option to modify them. Use `[d]` to reset to defaults and `[0]` or `[b]` to return to the main menu.
 
-3. **Default Execution Unless Modified**:
-
-   * **Press `[Enter]` (or `r`)**: Immediately starts the audit across all sections with default settings and no custom option changes.
-
-   * **Select a numbered option (`1`, `2`, `3`, ...)**: Toggle or customize only the specific option(s) you want before starting the audit, or press `[d]` to reset defaults and `[0]` / `[b]` to return to the main menu.
-
-| **Audit Code** | **Audit Program** | **Coverage** | **Numbered Pre-Audit Options** |
+| Audit code | Audit program | Coverage | Pre-audit options |
 | --- | --- | --- | --- |
-| `[1]` | `cis_ubuntu_26.04_audit.sh` | All 7 Sections (350 Controls) | `[1]` Quiet-OK Mode · `[2]` Output File · `[3]` Color Output |
-| `[2]` | `cis_ubuntu_24.04_audit.sh` | All 7 Sections (333 Controls) | `[1]` Quiet-OK Mode · `[2]` Output File · `[3]` Color Output |
-| `[3]` | `cis_mariadb_10.6_audit.sh` | All 9 Sections (74 Controls) | `[1]` Quiet-OK · `[2]` Output File · `[3]` Color · `[4]` DB User · `[5]` Ask-Pass · `[6]` Password · `[7]` Host · `[8]` Port · `[9]` Socket · `[10]` Defaults File · `[11]` Config File · `[12]` Admin Users · `[13]` Repl Users · `[14]` Backup Dirs |
-| `[4]` | `cis_apache_2.4_audit.sh` | All 12 Sections (81 Controls) | `[1]` Quiet-OK · `[2]` Output File · `[3]` Color · `[4]` ServerRoot Prefix · `[5]` Main Config File · `[6]` Apache Binary · `[7]` DocumentRoot |
-| `[5]` | `cis_nginx_benchmark_v3.0.0.sh` | All 6 Sections (44 Controls) | `[1]` Quiet-OK · `[2]` Output File · `[3]` Color · `[4]` NGINX Config Dir · `[5]` NGINX Binary · `[6]` Authorized Ports |
-| `[6]` | Full CIS Audit Suite (All 5) | All 5 Benchmarks (882 Controls) | `[1]` Quiet-OK Mode · `[2]` Output File · `[3]` Color Output |
+| `[1]` | Ubuntu Linux 26.04 LTS (`cis_ubuntu_26.04.sh`) | 7 sections, 350 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color |
+| `[2]` | Ubuntu Linux 24.04 LTS (`cis_ubuntu_24.04.sh`) | 7 sections, 333 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color |
+| `[3]` | MariaDB 10.6 (`cis_mariadb_10.6.sh`) | 9 sections, 74 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color · `[5]` DB User · `[6]` Ask-Pass · `[7]` Password · `[8]` Host · `[9]` Port · `[10]` Socket · `[11]` Defaults File · `[12]` Config File · `[13]` Admin Users · `[14]` Replication Users · `[15]` Backup Directories |
+| `[4]` | Apache HTTP Server 2.4 (`cis_apache_2.4.sh`) | 12 sections, 81 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color · `[5]` ServerRoot Prefix · `[6]` Main Config File · `[7]` Apache Binary · `[8]` DocumentRoot |
+| `[5]` | NGINX 3.0.0 (`cis_nginx_v3.0.0.sh`) | 6 sections, 44 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color · `[5]` NGINX Config Directory · `[6]` NGINX Binary · `[7]` Authorized Ports |
+| `[6]` | Full CIS Audit Suite (all five benchmarks) | 882 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color |
 
-## Standardized Code Structure & Output Formatting
+## Command-Line Options
 
-All five CIS audit scripts share a unified architecture and visual output:
+Common launcher options:
 
-* **Unified Header Banner**: Displays an ASCII art title, benchmark metadata, host OS/kernel telemetry, current user UID, active profile/section scope (`all`), auto-discovered target binaries/config paths, and a non-root privilege warning when `UID != 0`.
+| Option | Description |
+| --- | --- |
+| `-t, --target <1..6\|name>` | Run one target directly. Names include `ubuntu-26.04`, `ubuntu-24.04`, `mariadb`, `apache`, `nginx`, and `all`. |
+| `-l, --level <1\|2\|all>` | Select a CIS profile level. Defaults to `all`. |
+| `-o, --output <file>` | Save the full audit report to a file. |
+| `-q, --quiet-ok` | Hide compliant `[OK]` results; show findings requiring attention. |
+| `-n, --no-color` / `--color` | Disable ANSI colors, or force them even when output is piped. |
+| `--once` | Execute one audit selection and exit. |
+| `-h, --help` | Display help and exit. |
 
-* **Unified Section & Subsection Formatting**: Uses `[SECTION N]` banners and `[+]` subsection dividers encapsulated in `run_section_1` through `run_section_N` functions.
+Target-specific options configure MariaDB credentials and connection, Apache paths, or NGINX paths and authorized ports. Use `--ask-pass` or `--defaults-file` rather than placing a database password directly in a command where it may be exposed in shell history or process listings. For example:
 
-* **Unified Control Status Badges**:
+```bash
+sudo bash audit.sh --target mariadb --db-user root --ask-pass
+sudo bash audit.sh --target mariadb --db-user audit --defaults-file /root/.my.cnf
+sudo bash audit.sh --target apache --apache-config /etc/apache2/apache2.conf
+sudo bash audit.sh --target nginx --nginx-config-dir /etc/nginx --nginx-ports 80,443
+```
 
-  * `[OK]` (Green): Control is compliant with CIS Benchmark criteria.
+## Benchmarks
 
-  * `[FAIL]` (Red): Control is non-compliant; displays the exact `Finding` and step-by-step `Remediation` commands.
+| Platform | Benchmark version | Controls |
+| --- | --- | ---: |
+| Ubuntu Linux 26.04 LTS | v1.0.0 | 350 |
+| Ubuntu Linux 24.04 LTS | v2.0.0 | 333 |
+| MariaDB 10.6 | v1.1.0 | 74 |
+| Apache HTTP Server 2.4 | v2.4.0 | 81 |
+| NGINX | v3.0.0 | 44 |
 
-  * `[MANUAL]` (Yellow): Control requires site-specific policy verification; displays observed state and verification steps.
+## Audit Output
 
-  * `[SKIP]` (Magenta): Control requires live service/database connectivity not currently available.
+The audit scripts share a consistent output format:
 
-* **Unified Per-Section Summary Scorecard**: Outputs a section-by-section breakdown table (`OK`, `FAIL`, `MANUAL`, `SKIP`, `Total`) for all executed sections along with overall totals and the automated compliance pass rate percentage.
+* **Header:** Benchmark metadata, host OS and kernel, current user UID, selected profile and section scope, discovered target paths, and a warning when run without root privileges.
+* **Sections:** `[SECTION N]` banners and `[+]` subsection dividers.
+* **Control status:**
+  * `[OK]` — compliant with the control criteria.
+  * `[FAIL]` — non-compliant; includes the finding and remediation guidance.
+  * `[MANUAL]` — requires site-specific verification; includes observed state and verification steps.
+  * `[SKIP]` — could not be evaluated, commonly because required live service or database connectivity is unavailable.
+* **Summary:** Per-section counts (`OK`, `FAIL`, `MANUAL`, `SKIP`, and total), overall totals, and an automated compliance pass rate.
+
+These scripts report audit findings; they do not apply remediation changes.
