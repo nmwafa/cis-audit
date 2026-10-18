@@ -17,6 +17,7 @@ SCRIPT_NAME="$(basename "$0")"
 # CLI Options & Defaults
 # ------------------------------------------------------------------------------
 PROFILE_LEVEL="all"      # 1, 2, or all
+PROFILE_TYPE="server"    # server or workstation
 TARGET_SECTION="all"     # 1..7 or all
 OUTPUT_FILE=""
 USE_COLOR=1
@@ -32,6 +33,8 @@ all 350 recommendations in the CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0.
 
 Options:
   -l, --level <1|2|all>     Filter by CIS Profile Level (default: all)
+  -t, --type <server|workstation>
+                            CIS Profile Type: server or workstation (default: server)
   -s, --section <1..7|all>  Audit only a specific section (1-7) (default: all)
   -o, --output <file>       Save full audit report to a file
   -q, --quiet-ok            Hide [OK] results and only show findings/remediations
@@ -45,6 +48,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -l|--level)
             PROFILE_LEVEL="${2:-all}"
+            shift 2
+            ;;
+        -t|--type)
+            PROFILE_TYPE="${2:-server}"
             shift 2
             ;;
         -s|--section)
@@ -193,14 +200,36 @@ print_subsection_header() {
     echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
 }
 
+get_effective_level() {
+    local id="$1"
+    local default_lvl
+    default_lvl="$(normalize_level "${2:-L1}")"
+    if [[ "${PROFILE_TYPE,,}" == "workstation" ]]; then
+        case "$id" in
+            1.6.12|2.1.21|3.1.2)
+                echo "NA"
+                return 0
+                ;;
+            1.1.1.9|1.1.1.10|1.7.4|2.1.1|2.1.2|2.1.11|3.1.3)
+                echo "L2"
+                return 0
+                ;;
+        esac
+    fi
+    echo "$default_lvl"
+}
+
 should_run_check() {
     local id="$1"
     local level
-    level="$(normalize_level "${2:-L1}")"
+    level="$(get_effective_level "$id" "${2:-L1}")"
     local sec="${id%%.*}"
     [[ ! "$sec" =~ ^[0-9]+$ ]] && sec="${CURRENT_SECTION:-1}"
 
     if ! is_section_selected "$sec"; then
+        return 1
+    fi
+    if [[ "$level" == "NA" ]]; then
         return 1
     fi
     if [[ "$PROFILE_LEVEL" == "1" && "$level" == "L2" ]]; then
@@ -235,7 +264,7 @@ report_result() {
     local remediation="${7:-}"
 
     local level
-    level="$(normalize_level "$raw_level")"
+    level="$(get_effective_level "$id" "$raw_level")"
     local sec="${id%%.*}"
     [[ ! "$sec" =~ ^[0-9]+$ ]] && sec="${CURRENT_SECTION:-1}"
 
@@ -1566,7 +1595,7 @@ run_section_2() {
             l_interfaces="$(grep -i 'O DaemonPortOptions=' /etc/mail/sendmail.cf 2>/dev/null | grep -oP '(?<=Addr=)[^,+]+' | grep -v '^127\.0\.0\.1$' || true)"
         fi
         if [[ -n "$l_interfaces" ]]; then
-            if grep -Pqi '\ball\b' <<< "$l_interfaces" || ! grep -Pqi '(inet_interfaces\h*=\h*)?(127\.0\.0\.1|0\.0\.0\.0|::1|loopback-only)' <<< "$l_interfaces"; then
+            if grep -Pqi '\ball\b' <<< "$l_interfaces" || ! grep -Pqi '(inet_interfaces\h*=\h*)?(127\.0\.0\.1|::1|loopback-only|localhost)' <<< "$l_interfaces"; then
                 mta_issues+=("MTA is bound to non-loopback interface (${l_interfaces})")
             fi
         fi
