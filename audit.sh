@@ -27,7 +27,7 @@ SCRIPT_UBUNTU="cis_ubuntu_26.04_audit.sh"
 SCRIPT_UBUNTU_2404="cis_ubuntu_24.04_audit.sh"
 SCRIPT_MARIADB="cis_mariadb_10.6_audit.sh"
 SCRIPT_APACHE="cis_apache_2.4_audit.sh"
-SCRIPT_NGINX="cis_nginx_benchmark_v3.0.0.sh"
+SCRIPT_NGINX="cis_nginx_v3.0.0.sh"
 
 SEP_LINE="===================================================================================================="
 DIV_LINE="----------------------------------------------------------------------------------------------------"
