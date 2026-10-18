@@ -329,28 +329,10 @@ report_manual() {
     report_result "$id" "$title" "$level" "$status_type" "MANUAL" "$finding" "$remediation"
 }
 
-print_banner() {
-    echo -e "${C_CYAN}${C_BOLD}"
-    cat << 'BANNER'
-     _______________    __  ____                __           ___  __ __   ____  __ __
-    / ____/  _/ ___/   / / / / /_  __  ______  / /___  __   |__ \/ // /  / __ \/ // /
-   / /    / / \__ \   / / / / __ \/ / / / __ \/ __/ / / /   __/ / // /_ / / / / // /_
-  / /____/ / ___/ /  / /_/ / /_/ / /_/ / / / / /_/ /_/ /   / __/__  __// /_/ /__  __/
-  \____/___//____/   \____/_.___/\__,_/_/ /_/\__/\__,_/   /____/ /_/ (_)____/  /_/   
-                                                                                   
-BANNER
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
-    echo -e "  ${C_BOLD}Benchmark:${C_RESET}      ${BENCHMARK_NAME} (05-28-2026)"
-    echo -e "  ${C_BOLD}Hostname:${C_RESET}       $(hostname 2>/dev/null || echo 'unknown')"
-    echo -e "  ${C_BOLD}OS Release:${C_RESET}     $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || uname -sr)"
-    echo -e "  ${C_BOLD}Kernel:${C_RESET}         $(uname -r 2>/dev/null || echo 'unknown') ($(uname -m 2>/dev/null || echo 'unknown'))"
-    echo -e "  ${C_BOLD}Current User:${C_RESET}   $(id -un 2>/dev/null || echo 'unknown') (UID: $(id -u 2>/dev/null || echo '?'))"
-    echo -e "  ${C_BOLD}Audit Date:${C_RESET}     $(date -u '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)"
-    echo -e "  ${C_BOLD}Section Filter:${C_RESET} ${TARGET_SECTION} (Profile Level: ${PROFILE_LEVEL})"
+print_warning() {
     if [[ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]]; then
-        echo -e "  ${C_YELLOW}[!] WARNING: Script is not running as root (UID 0). Some checks (e.g. /etc/shadow, auditctl, sshd -T) require root privileges for accurate results.${C_RESET}"
+        echo -e "\n${C_YELLOW}[!] WARNING: Script is not running as root (UID 0). Some checks (e.g. /etc/shadow, auditctl, sshd -T) require root privileges for accurate results.${C_RESET}"
     fi
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
 }
 
 UID_MIN_VAL="$(awk '/^\s*UID_MIN/{print $2}' /etc/login.defs 2>/dev/null || echo 1000)"
@@ -4373,7 +4355,7 @@ print_summary() {
 
 main() {
     setup_colors_and_init
-    print_banner
+    print_warning
     run_section_1
     run_section_2
     run_section_3

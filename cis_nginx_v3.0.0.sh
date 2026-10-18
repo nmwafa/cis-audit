@@ -348,32 +348,10 @@ report_fail() {
     report_result "$id" "$NGX_CLEAN_TITLE" "$NGX_LEVEL" "$NGX_TYPE" "FAIL" "$finding" "$remediation"
 }
 
-print_banner() {
-    echo -e "${C_CYAN}${C_BOLD}"
-    cat << 'BANNER'
-     _______________    _   __      _               _____  ____   ____ 
-    / ____/  _/ ___/   / | / /___ _(_)___  _  __   |__  / / __ \ / __ \
-   / /    / / \__ \   /  |/ / __ `/ / __ \| |/_/    /_ < / / / // / / /
-  / /____/ / ___/ /  / /|  / /_/ / / / / />  <    ___/ // /_/ // /_/ / 
-  \____/___//____/  /_/ |_/\__, /_/_/ /_/_/|_|   /____(_)____(_)____/  
-                          /____/                                       
-
-BANNER
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
-    echo -e "  ${C_BOLD}Benchmark:${C_RESET}      ${BENCHMARK_NAME} (12-24-2025)"
-    echo -e "  ${C_BOLD}Hostname:${C_RESET}       $(hostname 2>/dev/null || echo 'unknown')"
-    echo -e "  ${C_BOLD}OS Release:${C_RESET}     $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || uname -sr)"
-    echo -e "  ${C_BOLD}Kernel:${C_RESET}         $(uname -r 2>/dev/null || echo 'unknown') ($(uname -m 2>/dev/null || echo 'unknown'))"
-    echo -e "  ${C_BOLD}Current User:${C_RESET}   $(id -un 2>/dev/null || echo 'unknown') (UID: $(id -u 2>/dev/null || echo '?'))"
-    echo -e "  ${C_BOLD}Audit Date:${C_RESET}     $(date -u '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)"
-    echo -e "  ${C_BOLD}Section Filter:${C_RESET} ${TARGET_SECTION} (Profile Level: ${PROFILE_LEVEL})"
-    echo -e "  ${C_BOLD}NGINX Binary:${C_RESET}   ${NGINX_BIN:-Not Found}"
-    echo -e "  ${C_BOLD}Config Dir:${C_RESET}     ${NGINX_CONF_DIR:-Not Found} (Main: ${NGINX_CONF_FILE:-Not Found})"
-    echo -e "  ${C_BOLD}PID File:${C_RESET}       ${NGINX_PID_FILE:-Not Found} | Authorized Ports: ${AUTHORIZED_PORTS}"
+print_warning() {
     if [[ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]]; then
-        echo -e "  ${C_YELLOW}[!] WARNING: Script is not running as root (UID 0). Some file permission, shadow, sudo, and live 'nginx -T' checks may require root privileges.${C_RESET}"
+        echo -e "\n${C_YELLOW}[!] WARNING: Script is not running as root (UID 0). Some file permission, shadow, sudo, and live 'nginx -T' checks may require root privileges.${C_RESET}"
     fi
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
 }
 
 discover_nginx() {
@@ -2268,7 +2246,7 @@ print_summary() {
 main() {
     setup_colors_and_init
     discover_nginx
-    print_banner
+    print_warning
     run_section_1
     run_section_2
     run_section_3

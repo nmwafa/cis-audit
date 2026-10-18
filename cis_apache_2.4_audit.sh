@@ -372,34 +372,10 @@ manual_check() {
     report_result "$id" "$AP_CLEAN_TITLE" "$AP_LEVEL" "$AP_TYPE" "MANUAL" "$finding" "$remediation"
 }
 
-print_banner() {
-    echo -e "${C_CYAN}${C_BOLD}"
-    cat << 'BANNER'
-     _______________    ___                     __            ___   __ __
-    / ____/  _/ ___/   /   |  ____  ____ ______/ /_  ___     |__ \ / // /
-   / /    / / \__ \   / /| | / __ \/ __ `/ ___/ __ \/ _ \    __/ // // /_
-  / /____/ / ___/ /  / ___ |/ /_/ / /_/ / /__/ / / /  __/   / __//__  __/
-  \____/___//____/  /_/  |_/ .___/\__,_/\___/_/ /_/\___/   /____(_)/_/   
-                          /_/                                            
-
-BANNER
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
-    echo -e "  ${C_BOLD}Benchmark:${C_RESET}      ${BENCHMARK_NAME} (08-31-2026)"
-    echo -e "  ${C_BOLD}Hostname:${C_RESET}       $(hostname 2>/dev/null || echo 'unknown')"
-    echo -e "  ${C_BOLD}OS Release:${C_RESET}     $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || uname -sr)"
-    echo -e "  ${C_BOLD}Kernel:${C_RESET}         $(uname -r 2>/dev/null || echo 'unknown') ($(uname -m 2>/dev/null || echo 'unknown'))"
-    echo -e "  ${C_BOLD}Current User:${C_RESET}   $(id -un 2>/dev/null || echo 'unknown') (UID: $(id -u 2>/dev/null || echo '?'))"
-    echo -e "  ${C_BOLD}Audit Date:${C_RESET}     $(date -u '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)"
-    echo -e "  ${C_BOLD}Section Filter:${C_RESET} ${TARGET_SECTION} (Profile Level: ${PROFILE_LEVEL})"
-    echo -e "  ${C_BOLD}Apache Binary:${C_RESET}  ${HTTPD_BIN:-Not Found}"
-    echo -e "  ${C_BOLD}ServerRoot:${C_RESET}     ${APACHE_PREFIX}"
-    echo -e "  ${C_BOLD}Main Config:${C_RESET}    ${HTTPD_CONF}"
-    echo -e "  ${C_BOLD}DocumentRoot:${C_RESET}   ${DOCROOT}"
-    echo -e "  ${C_BOLD}Apache User:${C_RESET}    ${APACHE_USER:-Not Set} / ${APACHE_GROUP:-Not Set} (${#CONF_FILES[@]} config file(s))"
+print_warning() {
     if [[ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]]; then
-        echo -e "  ${C_YELLOW}[!] WARNING: Script is not running as root (UID 0). Some file permission, process, or password lock checks may have limited visibility.${C_RESET}"
+        echo -e "\n${C_YELLOW}[!] WARNING: Script is not running as root (UID 0). Some file permission, process, or password lock checks may have limited visibility.${C_RESET}"
     fi
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
 }
 
 detect_apache_env() {
@@ -3086,7 +3062,7 @@ print_summary() {
 main() {
     setup_colors_and_init
     detect_apache_env
-    print_banner
+    print_warning
     run_section_1
     run_section_2
     run_section_3

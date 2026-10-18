@@ -327,35 +327,15 @@ setup_colors_and_init() {
     fi
 }
 
-print_banner() {
-    echo -e "${C_CYAN}${C_BOLD}"
-    cat << 'BANNER'
-     _______________    __  ___           _       ____  ____     _______   _____
-    / ____/  _/ ___/   /  |/  /___ ______(_)___ _/ __ \/ __ )   <  / __ \ / ___/
-   / /    / / \__ \   / /|_/ / __ `/ ___/ / __ `/ / / / __  |   / / / / // __ \ 
-  / /____/ / ___/ /  / /  / / /_/ / /  / / /_/ / /_/ / /_/ /   / / /_/ // /_/ / 
-  \____/___//____/  /_/  /_/\__,_/_/  /_/\__,_/_____/_____/   /_/\____(_)____/  
-                                                                                 
-BANNER
-    echo -e "${C_BLUE}==================================================================================================${C_RESET}"
-    echo -e "  ${C_BOLD}Benchmark:${C_RESET}      ${BENCHMARK_NAME} (03-29-2024)"
-    echo -e "  ${C_BOLD}Hostname:${C_RESET}       ${HOSTNAME_VAL}"
-    echo -e "  ${C_BOLD}OS Release:${C_RESET}     $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || uname -sr)"
-    echo -e "  ${C_BOLD}Kernel:${C_RESET}         $(uname -r 2>/dev/null || echo 'unknown') ($(uname -m 2>/dev/null || echo 'unknown'))"
-    echo -e "  ${C_BOLD}Current User:${C_RESET}   $(id -un 2>/dev/null || echo 'unknown') (UID: $(id -u 2>/dev/null || echo '?'))"
-    echo -e "  ${C_BOLD}Audit Date:${C_RESET}     ${TIMESTAMP}"
-    echo -e "  ${C_BOLD}Section Filter:${C_RESET} ${TARGET_SECTION} (Profile Level: ${PROFILE_LEVEL})"
-    echo -e "  ${C_BOLD}SQL Client:${C_RESET}     ${SQL_CLI:-Not Found}"
-    echo -e "  ${C_BOLD}DB Connection:${C_RESET}  ${DB_CONN_STATUS}"
+print_warning() {
     if [[ ${#CNF_FILES[@]} -gt 0 ]]; then
-        echo -e "  ${C_BOLD}Config Files:${C_RESET}   ${#CNF_FILES[@]} file(s) (${CNF_FILES[*]})"
+        echo -e "\n${C_BOLD}Config Files:${C_RESET}   ${#CNF_FILES[@]} file(s) (${CNF_FILES[*]})"
     else
-        echo -e "  ${C_BOLD}Config Files:${C_RESET}   ${C_YELLOW}None detected in standard paths (/etc/mysql, /etc/my.cnf)${C_RESET}"
+        echo -e "\n${C_BOLD}Config Files:${C_RESET}   ${C_YELLOW}None detected in standard paths (/etc/mysql, /etc/my.cnf)${C_RESET}"
     fi
     if [[ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]]; then
-        echo -e "  ${C_YELLOW}[!] WARNING: Script is not running as root (UID 0). Some filesystem and OS checks require root privileges for accurate results.${C_RESET}"
+        echo -e "\n${C_YELLOW}[!] WARNING: Script is not running as root (UID 0). Some filesystem and OS checks require root privileges for accurate results.${C_RESET}"
     fi
-    echo -e "${C_BLUE}==================================================================================================${C_RESET}"
 }
 
 # ==============================================================================
@@ -2385,7 +2365,7 @@ print_summary() {
 main() {
     setup_colors_and_init
     discover_environment
-    print_banner
+    print_warning
     run_section_1
     run_section_2
     run_section_3
