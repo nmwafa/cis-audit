@@ -409,23 +409,23 @@ print_launcher_banner() {
   \____/___//____/  /_/  |_\__,_/\__,_/_/\__/   /____/\__,_/_/\__/\___/ 
                                                                       
 BANNER
-    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
-    echo -e "  ${C_BOLD}Hostname:${C_RESET}       $(hostname 2>/dev/null || echo 'unknown')"
-    echo -e "  ${C_BOLD}OS Release:${C_RESET}     $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || uname -sr)"
-    echo -e "  ${C_BOLD}Kernel:${C_RESET}         $(uname -r 2>/dev/null || echo 'unknown') ($(uname -m 2>/dev/null || echo 'unknown'))"
-    echo -e "  ${C_BOLD}Current User:${C_RESET}   $(id -un 2>/dev/null || echo 'unknown') (UID: $(id -u 2>/dev/null || echo '?'))"
-    echo -e "  ${C_BOLD}Audit Date:${C_RESET}     $(date -u '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)"
-    echo -e "  ${C_BOLD}Script Source:${C_RESET}  ${EXEC_SOURCE}"
+    echo -e "  ${C_RESET}"
+    echo -e "  ${C_BOLD}Hostname        :${C_RESET} $(hostname 2>/dev/null || echo 'unknown')"
+    echo -e "  ${C_BOLD}OS Release      :${C_RESET} $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || uname -sr)"
+    echo -e "  ${C_BOLD}Kernel          :${C_RESET} $(uname -r 2>/dev/null || echo 'unknown') ($(uname -m 2>/dev/null || echo 'unknown'))"
+    echo -e "  ${C_BOLD}Current User    :${C_RESET} $(id -un 2>/dev/null || echo 'unknown') (UID: $(id -u 2>/dev/null || echo '?'))"
+    echo -e "  ${C_BOLD}Audit Date      :${C_RESET} $(date -u '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)"
+    echo -e "  ${C_BOLD}Script Source   :${C_RESET} ${EXEC_SOURCE}"
     if [[ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]]; then
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e "  ${C_RESET}"
         echo -e "  ${C_YELLOW}[!] WARNING: Running as non-root user. Re-run with 'sudo' for full audit visibility.${C_RESET}"
     fi
-    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+    #echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
 }
 
 print_main_menu() {
     echo -e "\n${C_BG_BLUE} [MAIN MENU] SELECT A CIS BENCHMARK AUDIT PROGRAM ${C_RESET}"
-    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+    #echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     printf "  ${C_CYAN}${C_BOLD}[1]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
         "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0" "(350 Controls)" "$BADGE_UBUNTU_2604"
     printf "  ${C_CYAN}${C_BOLD}[2]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
@@ -438,9 +438,8 @@ print_main_menu() {
         "CIS NGINX Benchmark v3.0.0" "( 44 Controls)" "$BADGE_NGINX"
     printf "  ${C_GREEN}${C_BOLD}[6]${C_RESET} ${C_BOLD}%-46s${C_RESET} ${C_DIM}%-16s${C_RESET} ${C_MAGENTA}[FULL SUITE]${C_RESET}\n" \
         "Run All 5 CIS Benchmark Audits Sequentially" "(882 Controls)"
-    echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
     echo -e "  ${C_RED}${C_BOLD}[0]${C_RESET} Exit CIS Audit Launcher"
-    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+    echo -e ""
 }
 
 # ------------------------------------------------------------------------------
@@ -552,19 +551,20 @@ menu_audit_ubuntu_2604() {
         clear_screen
         print_launcher_banner
         format_common_labels
-        echo -e "\n${C_BG_BLUE} [AUDIT CODE 1] CIS UBUNTU LINUX 26.04 LTS v1.0.0 - AUDIT OPTIONS ${C_RESET}"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
+        echo -e "${C_BG_BLUE} [AUDIT CODE 1] CIS UBUNTU LINUX 26.04 LTS v1.0.0 - AUDIT OPTIONS ${C_RESET}"
+        echo -e ""
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_YELLOW}${C_BOLD}Ubuntu 26.04 Audit Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[1]${C_RESET} %-35s : %b\n" "Profile Level (-l, --level)" "$PROFILE_DISP"
         printf "    ${C_CYAN}${C_BOLD}[2]${C_RESET} %-35s : %b\n" "Quiet-OK Mode (-q, --quiet-ok)" "$QUIET_DISP"
         printf "    ${C_CYAN}${C_BOLD}[3]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Output File (-o, --output)" "$OUT_DISP"
         printf "    ${C_CYAN}${C_BOLD}[4]${C_RESET} %-35s : %b\n" "Color Output (-n, --no-color)" "$COLOR_DISP"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         print_status_notice
         echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start Ubuntu 26.04 Audit Now   ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
 
         local sub=""
         prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, or select option [1-4, d, 0]: ${C_RESET}" sub || return 1
@@ -596,19 +596,20 @@ menu_audit_ubuntu_2404() {
         clear_screen
         print_launcher_banner
         format_common_labels
-        echo -e "\n${C_BG_BLUE} [AUDIT CODE 2] CIS UBUNTU LINUX 24.04 LTS v2.0.0 - AUDIT OPTIONS ${C_RESET}"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
+        echo -e "${C_BG_BLUE} [AUDIT CODE 2] CIS UBUNTU LINUX 24.04 LTS v2.0.0 - AUDIT OPTIONS ${C_RESET}"
+        echo -e ""
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_YELLOW}${C_BOLD}Ubuntu 24.04 Audit Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[1]${C_RESET} %-35s : %b\n" "Profile Level (-l, --level)" "$PROFILE_DISP"
         printf "    ${C_CYAN}${C_BOLD}[2]${C_RESET} %-35s : %b\n" "Quiet-OK Mode (-q, --quiet-ok)" "$QUIET_DISP"
         printf "    ${C_CYAN}${C_BOLD}[3]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Output File (-o, --output)" "$OUT_DISP"
         printf "    ${C_CYAN}${C_BOLD}[4]${C_RESET} %-35s : %b\n" "Color Output (-n, --no-color)" "$COLOR_DISP"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         print_status_notice
         echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start Ubuntu 24.04 Audit Now   ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
 
         local sub=""
         prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, or select option [1-4, d, 0]: ${C_RESET}" sub || return 1
@@ -646,15 +647,15 @@ menu_audit_mariadb() {
         [[ -n "$MDB_PASS" ]] && pass_disp="******** (set)"
 
         echo -e "\n${C_BG_BLUE} [AUDIT CODE 3] CIS MARIADB 10.6 BENCHMARK v1.1.0 - AUDIT OPTIONS ${C_RESET}"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_YELLOW}${C_BOLD}General Audit Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[ 1]${C_RESET} %-35s : %b\n" "Profile Level (-l, --level)" "$PROFILE_DISP"
         printf "    ${C_CYAN}${C_BOLD}[ 2]${C_RESET} %-35s : %b\n" "Quiet-OK Mode (-q, --quiet-ok)" "$QUIET_DISP"
         printf "    ${C_CYAN}${C_BOLD}[ 3]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Output File (-o, --output)" "$OUT_DISP"
         printf "    ${C_CYAN}${C_BOLD}[ 4]${C_RESET} %-35s : %b\n" "Color Output (-n, --no-color)" "$COLOR_DISP"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_YELLOW}${C_BOLD}MariaDB 10.6 Connection & Policy Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[ 5]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "DB Username (-u, --user)" "${MDB_USER:-default (auto / current user)}"
         printf "    ${C_CYAN}${C_BOLD}[ 6]${C_RESET} %-35s : %b\n" "Ask Password (-W, --ask-pass)" "$ask_disp"
@@ -667,10 +668,10 @@ menu_audit_mariadb() {
         printf "    ${C_CYAN}${C_BOLD}[13]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Admin Users (-a, --admin-users)" "${MDB_ADMIN_USERS:-root,mysql,mariadb.sys (default)}"
         printf "    ${C_CYAN}${C_BOLD}[14]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Repl Users (-r, --repl-users)" "${MDB_REPL_USERS:-repl,replica,slave (default)}"
         printf "    ${C_CYAN}${C_BOLD}[15]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Backup Dirs (-b, --backup-dirs)" "${MDB_BACKUP_DIRS:-default standard backup paths}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         print_status_notice
         echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start MariaDB 10.6 Audit Now   ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
 
         local sub=""
         prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, or select option [1-15, d, 0]: ${C_RESET}" sub || return 1
@@ -719,25 +720,26 @@ menu_audit_apache() {
         clear_screen
         print_launcher_banner
         format_common_labels
-        echo -e "\n${C_BG_BLUE} [AUDIT CODE 4] CIS APACHE HTTP SERVER 2.4 v2.4.0 - AUDIT OPTIONS ${C_RESET}"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
+        echo -e "${C_BG_BLUE} [AUDIT CODE 4] CIS APACHE HTTP SERVER 2.4 v2.4.0 - AUDIT OPTIONS ${C_RESET}"
+        echo -e ""
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_YELLOW}${C_BOLD}General Audit Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[1]${C_RESET} %-35s : %b\n" "Profile Level (-l, --level)" "$PROFILE_DISP"
         printf "    ${C_CYAN}${C_BOLD}[2]${C_RESET} %-35s : %b\n" "Quiet-OK Mode (-q, --quiet-ok)" "$QUIET_DISP"
         printf "    ${C_CYAN}${C_BOLD}[3]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Output File (-o, --output)" "$OUT_DISP"
         printf "    ${C_CYAN}${C_BOLD}[4]${C_RESET} %-35s : %b\n" "Color Output (-n, --no-color)" "$COLOR_DISP"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_YELLOW}${C_BOLD}Apache 2.4 Environment Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[5]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "ServerRoot Prefix (-p, --prefix)" "${APACHE_PREFIX:-default (auto-detect /etc/apache2 or /etc/httpd)}"
         printf "    ${C_CYAN}${C_BOLD}[6]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Main Config File (-c, --config)" "${APACHE_CONFIG:-default (auto-detect httpd.conf / apache2.conf)}"
         printf "    ${C_CYAN}${C_BOLD}[7]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Apache Binary (-b, --binary)" "${APACHE_BINARY:-default (auto-detect httpd / apache2)}"
         printf "    ${C_CYAN}${C_BOLD}[8]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "DocumentRoot Dir (-d, --docroot)" "${APACHE_DOCROOT:-default (auto-detect /var/www/html)}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         print_status_notice
         echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start Apache 2.4 Audit Now     ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
 
         local sub=""
         prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, or select option [1-8, d, 0]: ${C_RESET}" sub || return 1
@@ -777,24 +779,25 @@ menu_audit_nginx() {
         clear_screen
         print_launcher_banner
         format_common_labels
-        echo -e "\n${C_BG_BLUE} [AUDIT CODE 5] CIS NGINX BENCHMARK v3.0.0 - AUDIT OPTIONS ${C_RESET}"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
+        echo -e "${C_BG_BLUE} [AUDIT CODE 5] CIS NGINX BENCHMARK v3.0.0 - AUDIT OPTIONS ${C_RESET}"
+        echo -e ""
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_YELLOW}${C_BOLD}General Audit Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[1]${C_RESET} %-35s : %b\n" "Profile Level (-l, --level)" "$PROFILE_DISP"
         printf "    ${C_CYAN}${C_BOLD}[2]${C_RESET} %-35s : %b\n" "Quiet-OK Mode (-q, --quiet-ok)" "$QUIET_DISP"
         printf "    ${C_CYAN}${C_BOLD}[3]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Output File (-o, --output)" "$OUT_DISP"
         printf "    ${C_CYAN}${C_BOLD}[4]${C_RESET} %-35s : %b\n" "Color Output (-n, --no-color)" "$COLOR_DISP"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_YELLOW}${C_BOLD}NGINX 3.0.0 Environment Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[5]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Config Directory (-c, --config-dir)" "${NGINX_CONFIG_DIR:-default (auto-detect /etc/nginx)}"
         printf "    ${C_CYAN}${C_BOLD}[6]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "NGINX Binary Path (-b, --binary)" "${NGINX_BINARY:-default (auto-detect from PATH)}"
         printf "    ${C_CYAN}${C_BOLD}[7]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Authorized Ports (-p, --ports)" "${NGINX_PORTS:-80,443 (default)}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         print_status_notice
         echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start NGINX 3.0.0 Audit Now    ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
 
         local sub=""
         prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, or select option [1-7, d, 0]: ${C_RESET}" sub || return 1
@@ -833,8 +836,9 @@ menu_audit_all() {
         clear_screen
         print_launcher_banner
         format_common_labels
+        echo -e ""
         echo -e "\n${C_BG_BLUE} [AUDIT CODE 6] FULL CIS SUITE (ALL 5 BENCHMARKS) - AUDIT OPTIONS ${C_RESET}"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
         echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
         echo -e "  ${C_YELLOW}${C_BOLD}Full Suite Audit Options:${C_RESET}"
@@ -842,10 +846,10 @@ menu_audit_all() {
         printf "    ${C_CYAN}${C_BOLD}[2]${C_RESET} %-35s : %b\n" "Quiet-OK Mode (-q, --quiet-ok)" "$QUIET_DISP"
         printf "    ${C_CYAN}${C_BOLD}[3]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Output File (-o, --output)" "$OUT_DISP"
         printf "    ${C_CYAN}${C_BOLD}[4]${C_RESET} %-35s : %b\n" "Color Output (-n, --no-color)" "$COLOR_DISP"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         print_status_notice
         echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start All 5 Audits Now         ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back"
-        echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+        echo -e ""
 
         local sub=""
         prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to execute all audits, or select option [1-4, d, 0]: ${C_RESET}" sub || return 1
@@ -1040,7 +1044,7 @@ post_audit_prompt() {
         echo ""
         return 1
     fi
-    if [[ "${cont,,}" == "0" || "${cont,,}" == "q" || "${cont,,}" == "exit" ]]; then
+    if [[ "${cont,,}" == "0" || "${cont,,}" == "q" || "${cont,,}" == "exit" || "${cont,,}" == "quit" ]]; then
         echo -e "${C_GREEN}[*] Exiting CIS Benchmark Security Audit Launcher.${C_RESET}"
         return 1
     fi

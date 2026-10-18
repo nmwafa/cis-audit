@@ -8,8 +8,8 @@
 
 set -u
 
-SEP_LINE="===================================================================================================="
-DIV_LINE="----------------------------------------------------------------------------------------------------"
+SEP_LINE="=========================================================================================="
+DIV_LINE="------------------------------------------------------------------------------------------"
 
 # ------------------------------------------------------------------------------
 # CLI Options & Defaults
@@ -181,14 +181,12 @@ print_section_header() {
     if ! is_section_selected "$sec_num"; then
         return 1
     fi
-    echo -e "\n${C_BG_BLUE} [SECTION ${sec_num}] ${sec_title} ${C_RESET}"
-    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+    echo -e "\n${C_BG_BLUE} [SECTION ${sec_num}] ${sec_title} ${C_RESET}\n"
     return 0
 }
 
 print_subsection_header() {
-    echo -e "\n${C_CYAN}${C_BOLD}[+] $1${C_RESET}"
-    echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+    echo -e "\n${C_CYAN}${C_BOLD}[+] $1${C_RESET}\n"
 }
 
 should_run_check() {
@@ -4346,9 +4344,8 @@ print_summary() {
     echo -e "  ${C_MAGENTA}${C_BOLD}[SKIP] Skipped:${C_RESET}         ${COUNT_SKIP}"
     if [[ "$TOTAL_CHECKS" -gt 0 ]]; then
         local pct=$(( (COUNT_OK * 100) / TOTAL_CHECKS ))
-        echo -e "  ${C_CYAN}${C_BOLD}Automated Pass Rate:${C_RESET}    ${pct}% (${COUNT_OK}/${TOTAL_CHECKS})"
+        echo -e "  ${C_CYAN}${C_BOLD}Automated Pass Rate:${C_RESET}    ${pct}% (${COUNT_OK}/${TOTAL_CHECKS})\n"
     fi
-    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
 }
 
 main() {
