@@ -8,9 +8,8 @@
 
 set -u
 
-BENCHMARK_NAME="CIS Apache HTTP Server 2.4 Benchmark v2.4.0"
-BENCHMARK_CONTROLS="81 Controls (Sections 1-12)"
-SCRIPT_NAME="$(basename "$0")"
+SEP_LINE="===================================================================================================="
+DIV_LINE="----------------------------------------------------------------------------------------------------"
 
 # ------------------------------------------------------------------------------
 # CLI Options & Defaults
@@ -28,7 +27,7 @@ QUIET_OK=0
 
 usage() {
     cat << 'EOF'
-Usage: ./cis_apache_2.4_audit.sh [OPTIONS]
+Usage: ./cis_apache_2.4.sh [OPTIONS]
 
 Standalone, zero-install Bash script to audit Apache HTTP Server 2.4
 against all recommendations in the CIS Apache HTTP Server 2.4 Benchmark v2.4.0.
@@ -199,13 +198,13 @@ print_section_header() {
         return 1
     fi
     echo -e "\n${C_BG_BLUE} [SECTION ${sec_num}] ${sec_title} ${C_RESET}"
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     return 0
 }
 
 print_subsection_header() {
     echo -e "\n${C_CYAN}${C_BOLD}[+] $1${C_RESET}"
-    echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
 }
 
 should_run_check() {
@@ -3017,10 +3016,10 @@ check_12_3
 # MAIN EXECUTION & SUMMARY SCORECARD
 # ==============================================================================
 print_summary() {
-    echo -e "\n${C_BG_BLUE} [SUMMARY] ${BENCHMARK_NAME^^} AUDIT REPORT ${C_RESET}"
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "\n${C_BG_BLUE} [SUMMARY] CIS Apache HTTP Server 2.4 Benchmark v2.4.0 AUDIT REPORT ${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     printf "  %-36s | %7s | %7s | %7s | %7s | %7s\n" "Section" "OK" "FAIL" "MANUAL" "SKIP" "Total"
-    echo -e "${C_DIM}------------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
     local s_names=(
         ""
         "1. Planning and Installation"
@@ -3046,7 +3045,7 @@ print_summary() {
         [[ "$tot" -eq 0 ]] && ! is_section_selected "$s" && continue
         printf "  %-36s | %7d | %7d | %7d | %7d | %7d\n" "${s_names[$s]}" "$ok" "$fl" "$mn" "$sk" "$tot"
     done
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     echo -e "  ${C_BOLD}Total Checks Executed:${C_RESET}  ${TOTAL_CHECKS}"
     echo -e "  ${C_GREEN}${C_BOLD}[OK] Compliant:${C_RESET}         ${COUNT_OK}"
     echo -e "  ${C_RED}${C_BOLD}[FAIL] Non-Compliant:${C_RESET}   ${COUNT_FAIL}"
@@ -3056,7 +3055,7 @@ print_summary() {
         local pct=$(( (COUNT_OK * 100) / TOTAL_CHECKS ))
         echo -e "  ${C_CYAN}${C_BOLD}Automated Pass Rate:${C_RESET}    ${pct}% (${COUNT_OK}/${TOTAL_CHECKS})"
     fi
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
 }
 
 main() {

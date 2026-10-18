@@ -8,10 +8,8 @@
 
 set -u
 
-BENCHMARK_NAME="CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0"
-BENCHMARK_SHORT="CIS Ubuntu Linux 26.04 LTS v1.0.0"
-BENCHMARK_CONTROLS="350 Controls (Sections 1-7)"
-SCRIPT_NAME="$(basename "$0")"
+SEP_LINE="===================================================================================================="
+DIV_LINE="----------------------------------------------------------------------------------------------------"
 
 # ------------------------------------------------------------------------------
 # CLI Options & Defaults
@@ -191,13 +189,13 @@ print_section_header() {
         return 1
     fi
     echo -e "\n${C_BG_BLUE} [SECTION ${sec_num}] ${sec_title} ${C_RESET}"
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     return 0
 }
 
 print_subsection_header() {
     echo -e "\n${C_CYAN}${C_BOLD}[+] $1${C_RESET}"
-    echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
 }
 
 get_effective_level() {
@@ -4508,10 +4506,10 @@ run_section_7() {
 # MAIN EXECUTION & SUMMARY SCORECARD
 # ==============================================================================
 print_summary() {
-    echo -e "\n${C_BG_BLUE} [SUMMARY] ${BENCHMARK_NAME^^} AUDIT REPORT ${C_RESET}"
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "\n${C_BG_BLUE} [SUMMARY] CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0 AUDIT REPORT ${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     printf "  %-36s | %7s | %7s | %7s | %7s | %7s\n" "Section" "OK" "FAIL" "MANUAL" "SKIP" "Total"
-    echo -e "${C_DIM}------------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
     local s_names=(
         ""
         "1. Initial Setup"
@@ -4532,7 +4530,7 @@ print_summary() {
         [[ "$tot" -eq 0 ]] && ! is_section_selected "$s" && continue
         printf "  %-36s | %7d | %7d | %7d | %7d | %7d\n" "${s_names[$s]}" "$ok" "$fl" "$mn" "$sk" "$tot"
     done
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     echo -e "  ${C_BOLD}Total Checks Executed:${C_RESET}  ${TOTAL_CHECKS}"
     echo -e "  ${C_GREEN}${C_BOLD}[OK] Compliant:${C_RESET}         ${COUNT_OK}"
     echo -e "  ${C_RED}${C_BOLD}[FAIL] Non-Compliant:${C_RESET}   ${COUNT_FAIL}"
@@ -4542,7 +4540,7 @@ print_summary() {
         local pct=$(( (COUNT_OK * 100) / TOTAL_CHECKS ))
         echo -e "  ${C_CYAN}${C_BOLD}Automated Pass Rate:${C_RESET}    ${pct}% (${COUNT_OK}/${TOTAL_CHECKS})"
     fi
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
 }
 
 main() {

@@ -8,12 +8,8 @@
 
 set -u
 
-VERSION="1.1.0"
-BENCHMARK_NAME="CIS MariaDB 10.6 Benchmark v1.1.0"
-BENCHMARK_CONTROLS="74 Controls (Sections 1-9)"
-SCRIPT_NAME="$(basename "$0")"
-TIMESTAMP="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-HOSTNAME_VAL="$(hostname 2>/dev/null || uname -n)"
+SEP_LINE="===================================================================================================="
+DIV_LINE="----------------------------------------------------------------------------------------------------"
 
 # ------------------------------------------------------------------------------
 # CLI Options & Defaults
@@ -38,7 +34,7 @@ QUIET_OK=0
 
 usage() {
     cat <<EOF
-Usage: ./$SCRIPT_NAME [OPTIONS]
+Usage: ./cis_mariadb_10.6.sh [OPTIONS]
 
 Standalone, zero-install Bash script to audit a MariaDB 10.6 server against
 all 74 recommendations in the CIS MariaDB 10.6 Benchmark v1.1.0.
@@ -193,13 +189,13 @@ print_section_header() {
         return 1
     fi
     echo -e "\n${C_BG_BLUE} [SECTION ${sec_num}] ${sec_title} ${C_RESET}"
-    echo -e "${C_BLUE}====================================================================================${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     return 0
 }
 
 print_subsection_header() {
     echo -e "\n${C_CYAN}${C_BOLD}[+] $1${C_RESET}"
-    echo -e "${C_DIM}------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
 }
 
 should_run_check() {
@@ -2323,10 +2319,10 @@ run_section_8() { audit_section_8; }
 run_section_9() { audit_section_9; }
 
 print_summary() {
-    echo -e "\n${C_BG_BLUE} [SUMMARY] ${BENCHMARK_NAME^^} AUDIT REPORT ${C_RESET}"
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "\n${C_BG_BLUE} [SUMMARY] CIS MariaDB 10.6 Benchmark v1.1.0 AUDIT REPORT ${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     printf "  %-36s | %7s | %7s | %7s | %7s | %7s\n" "Section" "OK" "FAIL" "MANUAL" "SKIP" "Total"
-    echo -e "${C_DIM}------------------------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
     local s_names=(
         ""
         "1. OS Level Configuration"
@@ -2349,7 +2345,7 @@ print_summary() {
         [[ "$tot" -eq 0 ]] && ! is_section_selected "$s" && continue
         printf "  %-36s | %7d | %7d | %7d | %7d | %7d\n" "${s_names[$s]}" "$ok" "$fl" "$mn" "$sk" "$tot"
     done
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
     echo -e "  ${C_BOLD}Total Checks Executed:${C_RESET}  ${TOTAL_CHECKS}"
     echo -e "  ${C_GREEN}${C_BOLD}[OK] Compliant:${C_RESET}         ${COUNT_OK}"
     echo -e "  ${C_RED}${C_BOLD}[FAIL] Non-Compliant:${C_RESET}   ${COUNT_FAIL}"
@@ -2359,7 +2355,7 @@ print_summary() {
         local pct=$(( (COUNT_OK * 100) / TOTAL_CHECKS ))
         echo -e "  ${C_CYAN}${C_BOLD}Automated Pass Rate:${C_RESET}    ${pct}% (${COUNT_OK}/${TOTAL_CHECKS})"
     fi
-    echo -e "${C_BLUE}==========================================================================================${C_RESET}"
+    echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
 }
 
 main() {
