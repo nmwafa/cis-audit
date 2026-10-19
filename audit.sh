@@ -34,11 +34,10 @@ SCRIPT_NGINX="cis_nginx_v3.0.0.sh"
 # ------------------------------------------------------------------------------
 CLI_PROFILE_LEVEL="all"
 PROFILE_LEVEL="all"
-TARGET_SECTION="all"
 CLI_OUTPUT_FILE=""
 CLI_QUIET_OK=0
 CLI_USE_COLOR=1
-CLI_FORCE_COLOR="${FORCE_COLOR:-1}"
+CLI_FORCE_COLOR=0
 RUN_ONCE=0
 CLI_TARGET=""
 EXTRA_ARGS=()
@@ -69,7 +68,7 @@ CLI_NGINX_PORTS=""
 OUTPUT_FILE=""
 QUIET_OK=0
 USE_COLOR=1
-FORCE_COLOR=1
+FORCE_COLOR=0
 
 MDB_USER=""
 MDB_PASS=""
@@ -108,7 +107,6 @@ normalize_profile_level() {
 # are executed unless the user explicitly desires them.
 reset_active_options() {
     PROFILE_LEVEL="${CLI_PROFILE_LEVEL:-all}"
-    TARGET_SECTION="all"
     OUTPUT_FILE="$CLI_OUTPUT_FILE"
     QUIET_OK="$CLI_QUIET_OK"
     USE_COLOR="$CLI_USE_COLOR"
@@ -190,18 +188,14 @@ usage() {
     cat << 'EOF'
 Usage: audit.sh [OPTIONS] [-- EXTRA_SCRIPT_ARGS...]
 
-Interactive, color-coded CLI launcher for the CIS Benchmark Security Audit Suite.
-Displays the main audit menu on startup. When an audit code (1-6) is selected,
-the numbered options for that specific audit program are displayed, including
-CIS Profile Level selection, with all sections and all profile levels included
-by default so pressing [Enter] runs the full audit immediately.
+Interactive CLI launcher for the CIS Benchmark Security Audit Suite.
 
 Direct Execution from GitHub:
   curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash
   curl -s https://raw.githubusercontent.com/nmwafa/cis-audit/main/audit.sh | sudo bash
 
 Universal CLI Options:
-  -t, --target <1..6|name>       Run target directly (1/ubuntu-26.04, 2/ubuntu-24.04, 3/mariadb, 4/apache, 5/nginx, 6/all)
+  -t, --target <1..5|name>       Run target directly (1/ubuntu-26.04, 2/ubuntu-24.04, 3/mariadb, 4/apache, 5/nginx)
   -l, --level <1|2|all>          Filter by CIS Profile Level (1 = Level 1, 2 = Level 2, all = All Profiles [default])
   -o, --output <file>            Save full audit report to <file>
   -q, --quiet-ok                 Hide [OK] results and display only FAIL/MANUAL/SKIP findings
@@ -258,26 +252,26 @@ parse_args() {
             -r|--repo-url) REPO_BASE_URL="${2%/}"; shift 2 ;;
             --once) RUN_ONCE=1; shift ;;
             # MariaDB options
-            --db-user) CLI_MDB_USER="${2:-}"; shift 2 ;;
-            --db-pass) CLI_MDB_PASS="${2:-}"; shift 2 ;;
+            -u|--user|--db-user) CLI_MDB_USER="${2:-}"; shift 2 ;;
+            --password|--db-pass) CLI_MDB_PASS="${2:-}"; shift 2 ;;
             -W|--ask-pass) CLI_MDB_ASK_PASS=1; shift ;;
-            --db-host) CLI_MDB_HOST="${2:-}"; shift 2 ;;
-            --db-port) CLI_MDB_PORT="${2:-}"; shift 2 ;;
-            --db-socket) CLI_MDB_SOCKET="${2:-}"; shift 2 ;;
-            --defaults-file) CLI_MDB_DEFAULTS_FILE="${2:-}"; shift 2 ;;
+            -H|--host|--db-host) CLI_MDB_HOST="${2:-}"; shift 2 ;;
+            -P|--port|--db-port) CLI_MDB_PORT="${2:-}"; shift 2 ;;
+            -S|--socket|--db-socket) CLI_MDB_SOCKET="${2:-}"; shift 2 ;;
+            -d|--defaults-file) CLI_MDB_DEFAULTS_FILE="${2:-}"; shift 2 ;;
             --db-config) CLI_MDB_CONFIG="${2:-}"; shift 2 ;;
-            --admin-users) CLI_MDB_ADMIN_USERS="${2:-}"; shift 2 ;;
+            -a|--admin-users) CLI_MDB_ADMIN_USERS="${2:-}"; shift 2 ;;
             --repl-users) CLI_MDB_REPL_USERS="${2:-}"; shift 2 ;;
             --backup-dirs) CLI_MDB_BACKUP_DIRS="${2:-}"; shift 2 ;;
             # Apache options
-            --apache-prefix) CLI_APACHE_PREFIX="${2:-}"; shift 2 ;;
+            --prefix|--apache-prefix) CLI_APACHE_PREFIX="${2:-}"; shift 2 ;;
             --apache-config) CLI_APACHE_CONFIG="${2:-}"; shift 2 ;;
             --apache-binary) CLI_APACHE_BINARY="${2:-}"; shift 2 ;;
-            --apache-docroot) CLI_APACHE_DOCROOT="${2:-}"; shift 2 ;;
+            --docroot|--apache-docroot) CLI_APACHE_DOCROOT="${2:-}"; shift 2 ;;
             # NGINX options
-            --nginx-config-dir) CLI_NGINX_CONFIG_DIR="${2:-}"; shift 2 ;;
+            --config-dir|--nginx-config-dir) CLI_NGINX_CONFIG_DIR="${2:-}"; shift 2 ;;
             --nginx-binary) CLI_NGINX_BINARY="${2:-}"; shift 2 ;;
-            --nginx-ports) CLI_NGINX_PORTS="${2:-}"; shift 2 ;;
+            --ports|--nginx-ports) CLI_NGINX_PORTS="${2:-}"; shift 2 ;;
             -h|--help) usage; exit 0 ;;
             --) shift; EXTRA_ARGS+=("$@"); break ;;
             *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
@@ -430,8 +424,6 @@ print_main_menu() {
         "CIS Apache HTTP Server 2.4 Benchmark v2.4.0" "( 81 Controls)" "$BADGE_APACHE"
     printf "  ${C_CYAN}${C_BOLD}[5]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
         "CIS NGINX Benchmark v3.0.0" "( 44 Controls)" "$BADGE_NGINX"
-    printf "  ${C_GREEN}${C_BOLD}[6]${C_RESET} ${C_BOLD}%-46s${C_RESET} ${C_DIM}%-16s${C_RESET} ${C_MAGENTA}[FULL SUITE]${C_RESET}\n" \
-        "Run All 5 CIS Benchmark Audits Sequentially" "(882 Controls)"
     echo -e "  ${C_RED}${C_BOLD}[0]${C_RESET} Exit CIS Audit Launcher\n"
 }
 
@@ -467,7 +459,7 @@ format_common_labels() {
 }
 
 prompt_profile_selection() {
-    echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+    echo -e ""
     echo -e "  ${C_YELLOW}${C_BOLD}Select CIS Profile:${C_RESET} ${C_CYAN}[1]${C_RESET} Level 1 Only   ${C_CYAN}[2]${C_RESET} Level 2   ${C_CYAN}[all]${C_RESET} All Profiles (default)"
     local p_val=""
     prompt_input "  Enter Profile Level [1, 2, or all (Enter for all)]: " p_val || return 1
@@ -515,7 +507,7 @@ handle_common_option_number() {
                 STATUS_MSG="[*] ANSI color output disabled."
             else
                 USE_COLOR=1
-                FORCE_COLOR=1
+                FORCE_COLOR="$CLI_FORCE_COLOR"
                 setup_colors
                 STATUS_MSG="${C_GREEN}[*] ANSI color output enabled.${C_RESET}"
             fi
@@ -528,7 +520,7 @@ handle_common_option_number() {
 print_status_notice() {
     if [[ -n "$STATUS_MSG" ]]; then
         echo -e "  ${STATUS_MSG}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
+        echo -e ""
         STATUS_MSG=""
     fi
 }
@@ -680,19 +672,48 @@ menu_audit_mariadb() {
             STATUS_MSG="${C_GREEN}[*] Reset to default settings.${C_RESET}"
         else
             case "$sub" in
-                5) prompt_input "  Enter MariaDB Username (leave blank for default): " MDB_USER || return 1 ;;
+                5)
+                    prompt_input "  Enter MariaDB Username (leave blank for default): " MDB_USER || return 1
+                    MDB_USER="$(echo "$MDB_USER" | xargs)"
+                    ;;
                 6)
                     if [[ "$MDB_ASK_PASS" -eq 0 ]]; then MDB_ASK_PASS=1; else MDB_ASK_PASS=0; fi
                     ;;
-                7) prompt_input "  Enter MariaDB Password (input hidden, leave blank for default): " MDB_PASS 1 || return 1 ;;
-                8) prompt_input "  Enter MariaDB Host (leave blank for default local socket): " MDB_HOST || return 1 ;;
-                9) prompt_input "  Enter MariaDB Port (leave blank for default 3306): " MDB_PORT || return 1 ;;
-                10) prompt_input "  Enter MariaDB Unix Socket Path (leave blank for default): " MDB_SOCKET || return 1 ;;
-                11) prompt_input "  Enter Client Defaults File Path (e.g. /root/.my.cnf, blank for none): " MDB_DEFAULTS_FILE || return 1 ;;
-                12) prompt_input "  Enter Primary MariaDB Config File Path (leave blank for auto-detect): " MDB_CONFIG || return 1 ;;
-                13) prompt_input "  Enter Authorized Admin Users (leave blank for default root,mysql,mariadb.sys): " MDB_ADMIN_USERS || return 1 ;;
-                14) prompt_input "  Enter Authorized Replication Users (leave blank for default repl,replica,slave): " MDB_REPL_USERS || return 1 ;;
-                15) prompt_input "  Enter Backup Directories List (leave blank for default paths): " MDB_BACKUP_DIRS || return 1 ;;
+                7)
+                    prompt_input "  Enter MariaDB Password (input hidden, leave blank for default): " MDB_PASS 1 || return 1
+                    ;;
+                8)
+                    prompt_input "  Enter MariaDB Host (leave blank for default local socket): " MDB_HOST || return 1
+                    MDB_HOST="$(echo "$MDB_HOST" | xargs)"
+                    ;;
+                9)
+                    prompt_input "  Enter MariaDB Port (leave blank for default 3306): " MDB_PORT || return 1
+                    MDB_PORT="$(echo "$MDB_PORT" | xargs)"
+                    ;;
+                10)
+                    prompt_input "  Enter MariaDB Unix Socket Path (leave blank for default): " MDB_SOCKET || return 1
+                    MDB_SOCKET="$(echo "$MDB_SOCKET" | xargs)"
+                    ;;
+                11)
+                    prompt_input "  Enter Client Defaults File Path (e.g. /root/.my.cnf, blank for none): " MDB_DEFAULTS_FILE || return 1
+                    MDB_DEFAULTS_FILE="$(echo "$MDB_DEFAULTS_FILE" | xargs)"
+                    ;;
+                12)
+                    prompt_input "  Enter Primary MariaDB Config File Path (leave blank for auto-detect): " MDB_CONFIG || return 1
+                    MDB_CONFIG="$(echo "$MDB_CONFIG" | xargs)"
+                    ;;
+                13)
+                    prompt_input "  Enter Authorized Admin Users (leave blank for default root,mysql,mariadb.sys): " MDB_ADMIN_USERS || return 1
+                    MDB_ADMIN_USERS="$(echo "$MDB_ADMIN_USERS" | xargs)"
+                    ;;
+                14)
+                    prompt_input "  Enter Authorized Replication Users (leave blank for default repl,replica,slave): " MDB_REPL_USERS || return 1
+                    MDB_REPL_USERS="$(echo "$MDB_REPL_USERS" | xargs)"
+                    ;;
+                15)
+                    prompt_input "  Enter Backup Directories List (leave blank for default paths): " MDB_BACKUP_DIRS || return 1
+                    MDB_BACKUP_DIRS="$(echo "$MDB_BACKUP_DIRS" | xargs)"
+                    ;;
                 *)
                     handle_common_option_number "$sub"
                     local rc=$?
@@ -748,10 +769,22 @@ menu_audit_apache() {
             STATUS_MSG="${C_GREEN}[*] Reset to default settings.${C_RESET}"
         else
             case "$sub" in
-                5) prompt_input "  Enter Apache ServerRoot / Prefix directory (leave blank for default): " APACHE_PREFIX || return 1 ;;
-                6) prompt_input "  Enter Main Apache Config File path (leave blank for default): " APACHE_CONFIG || return 1 ;;
-                7) prompt_input "  Enter Apache Binary path (leave blank for default): " APACHE_BINARY || return 1 ;;
-                8) prompt_input "  Enter Apache DocumentRoot directory (leave blank for default): " APACHE_DOCROOT || return 1 ;;
+                5)
+                    prompt_input "  Enter Apache ServerRoot / Prefix directory (leave blank for default): " APACHE_PREFIX || return 1
+                    APACHE_PREFIX="$(echo "$APACHE_PREFIX" | xargs)"
+                    ;;
+                6)
+                    prompt_input "  Enter Main Apache Config File path (leave blank for default): " APACHE_CONFIG || return 1
+                    APACHE_CONFIG="$(echo "$APACHE_CONFIG" | xargs)"
+                    ;;
+                7)
+                    prompt_input "  Enter Apache Binary path (leave blank for default): " APACHE_BINARY || return 1
+                    APACHE_BINARY="$(echo "$APACHE_BINARY" | xargs)"
+                    ;;
+                8)
+                    prompt_input "  Enter Apache DocumentRoot directory (leave blank for default): " APACHE_DOCROOT || return 1
+                    APACHE_DOCROOT="$(echo "$APACHE_DOCROOT" | xargs)"
+                    ;;
                 *)
                     handle_common_option_number "$sub"
                     local rc=$?
@@ -802,9 +835,18 @@ menu_audit_nginx() {
             STATUS_MSG="${C_GREEN}[*] Reset to default settings.${C_RESET}"
         else
             case "$sub" in
-                5) prompt_input "  Enter NGINX Config Directory (leave blank for default /etc/nginx): " NGINX_CONFIG_DIR || return 1 ;;
-                6) prompt_input "  Enter NGINX Binary Path (leave blank for default): " NGINX_BINARY || return 1 ;;
-                7) prompt_input "  Enter Authorized Listen Ports (leave blank for default 80,443): " NGINX_PORTS || return 1 ;;
+                5)
+                    prompt_input "  Enter NGINX Config Directory (leave blank for default /etc/nginx): " NGINX_CONFIG_DIR || return 1
+                    NGINX_CONFIG_DIR="$(echo "$NGINX_CONFIG_DIR" | xargs)"
+                    ;;
+                6)
+                    prompt_input "  Enter NGINX Binary Path (leave blank for default): " NGINX_BINARY || return 1
+                    NGINX_BINARY="$(echo "$NGINX_BINARY" | xargs)"
+                    ;;
+                7)
+                    prompt_input "  Enter Authorized Listen Ports (leave blank for default 80,443): " NGINX_PORTS || return 1
+                    NGINX_PORTS="$(echo "$NGINX_PORTS" | xargs)"
+                    ;;
                 *)
                     handle_common_option_number "$sub"
                     local rc=$?
@@ -818,75 +860,24 @@ menu_audit_nginx() {
     done
 }
 
-# Audit Code 6: Run All 5 CIS Benchmark Audits Sequentially
-menu_audit_all() {
-    reset_active_options
-    while true; do
-        clear_screen
-        print_launcher_banner
-        format_common_labels
-        echo -e ""
-        echo -e "\n${C_BG_BLUE} [AUDIT CODE 6] FULL CIS SUITE (ALL 5 BENCHMARKS) - AUDIT OPTIONS ${C_RESET}"
-        echo -e ""
-        echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
-        echo -e "${C_DIM}${DIV_LINE}${C_RESET}"
-        echo -e "  ${C_YELLOW}${C_BOLD}Full Suite Audit Options:${C_RESET}"
-        printf "    ${C_CYAN}${C_BOLD}[1]${C_RESET} %-35s : %b\n" "Profile Level (-l, --level)" "$PROFILE_DISP"
-        printf "    ${C_CYAN}${C_BOLD}[2]${C_RESET} %-35s : %b\n" "Quiet-OK Mode (-q, --quiet-ok)" "$QUIET_DISP"
-        printf "    ${C_CYAN}${C_BOLD}[3]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Output File (-o, --output)" "$OUT_DISP"
-        printf "    ${C_CYAN}${C_BOLD}[4]${C_RESET} %-35s : %b\n" "Color Output (-n, --no-color)" "$COLOR_DISP"
-        echo -e ""
-        print_status_notice
-        echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start All 5 Audits Now         ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back"
-        echo -e ""
-
-        local sub=""
-        prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to execute all audits, or select option [1-4, d, 0]: ${C_RESET}" sub || return 1
-        sub="$(echo "$sub" | xargs)"
-        case "${sub,,}" in
-            ""|r|run)
-                execute_audit_script "ubuntu" "$SCRIPT_UBUNTU" "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0"
-                execute_audit_script "ubuntu2404" "$SCRIPT_UBUNTU_2404" "CIS Ubuntu Linux 24.04 LTS Benchmark v2.0.0"
-                execute_audit_script "mariadb" "$SCRIPT_MARIADB" "CIS MariaDB 10.6 Benchmark v1.1.0"
-                execute_audit_script "apache" "$SCRIPT_APACHE" "CIS Apache HTTP Server 2.4 Benchmark v2.4.0"
-                execute_audit_script "nginx" "$SCRIPT_NGINX" "CIS NGINX Benchmark v3.0.0"
-                return 0
-                ;;
-            1|2|3|4)
-                handle_common_option_number "$sub" || return 1
-                ;;
-            d|reset)
-                reset_active_options
-                STATUS_MSG="${C_GREEN}[*] Options reset to default values.${C_RESET}"
-                ;;
-            0|b|back)
-                return 2
-                ;;
-            *)
-                STATUS_MSG="${C_RED}[!] Invalid option '${sub}'. Select [1-4], [d] to reset, [0] to go back, or press [Enter] to run.${C_RESET}"
-                ;;
-        esac
-    done
-}
-
 # ------------------------------------------------------------------------------
 # Argument Builder & Script Execution Engine
 # ------------------------------------------------------------------------------
-# All sections are always included by default; Profile Level defaults to "all"
-# unless modified by the user via CLI (-l/--level) or Option [1].
+# Only options explicitly selected/modified from default are passed to the
+# target audit script.
 build_child_args() {
     local target_key="$1"
     CHILD_ARGS=()
 
-    if [[ "$USE_COLOR" -eq 1 ]]; then
-        CHILD_ARGS+=("--color")
-    else
-        CHILD_ARGS+=("--no-color")
-    fi
-
-    CHILD_ARGS+=("--level" "${PROFILE_LEVEL:-all}" "--section" "all")
+    [[ -n "${PROFILE_LEVEL:-}" && "$PROFILE_LEVEL" != "all" ]] && CHILD_ARGS+=("--level" "$PROFILE_LEVEL")
     [[ "$QUIET_OK" -eq 1 ]] && CHILD_ARGS+=("--quiet-ok")
     [[ -n "$OUTPUT_FILE" ]] && CHILD_ARGS+=("--output" "$OUTPUT_FILE")
+
+    if [[ "$USE_COLOR" -eq 0 ]]; then
+        CHILD_ARGS+=("--no-color")
+    elif [[ "$FORCE_COLOR" -eq 1 ]]; then
+        CHILD_ARGS+=("--color")
+    fi
 
     case "$target_key" in
         mariadb)
@@ -928,7 +919,11 @@ execute_audit_script() {
     build_child_args "$target_key"
 
     echo -e "\n${C_CYAN}${C_BOLD}[*] Launching ${display_name} (${script_name})...${C_RESET}"
-    echo -e "${C_DIM}    Active Flags: ${CHILD_ARGS[*]}${C_RESET}"
+    if [[ ${#CHILD_ARGS[@]} -gt 0 ]]; then
+        echo -e "${C_DIM}    Active Flags: ${CHILD_ARGS[*]}${C_RESET}"
+    else
+        echo -e "${C_DIM}    Active Flags: none (default)${C_RESET}"
+    fi
 
     # 1. Check if script exists in local SCRIPT_DIR or current working directory
     local local_path=""
@@ -940,7 +935,11 @@ execute_audit_script() {
 
     if [[ -n "$local_path" ]]; then
         echo -e "${C_DIM}    Source: Local file (${local_path})${C_RESET}"
-        run_with_tty bash "$local_path" "${CHILD_ARGS[@]}"
+        if [[ ${#CHILD_ARGS[@]} -gt 0 ]]; then
+            run_with_tty bash "$local_path" "${CHILD_ARGS[@]}"
+        else
+            run_with_tty bash "$local_path"
+        fi
         return $?
     fi
 
@@ -985,7 +984,11 @@ execute_audit_script() {
 
     chmod +x "$tmp_script" 2>/dev/null || true
     local rc=0
-    run_with_tty bash "$tmp_script" "${CHILD_ARGS[@]}" || rc=$?
+    if [[ ${#CHILD_ARGS[@]} -gt 0 ]]; then
+        run_with_tty bash "$tmp_script" "${CHILD_ARGS[@]}" || rc=$?
+    else
+        run_with_tty bash "$tmp_script" || rc=$?
+    fi
     rm -f "$tmp_script"
     return "$rc"
 }
@@ -1007,13 +1010,6 @@ run_direct_target() {
             execute_audit_script "apache" "$SCRIPT_APACHE" "CIS Apache HTTP Server 2.4 Benchmark v2.4.0"
             ;;
         5|nginx)
-            execute_audit_script "nginx" "$SCRIPT_NGINX" "CIS NGINX Benchmark v3.0.0"
-            ;;
-        6|all)
-            execute_audit_script "ubuntu" "$SCRIPT_UBUNTU" "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0"
-            execute_audit_script "ubuntu2404" "$SCRIPT_UBUNTU_2404" "CIS Ubuntu Linux 24.04 LTS Benchmark v2.0.0"
-            execute_audit_script "mariadb" "$SCRIPT_MARIADB" "CIS MariaDB 10.6 Benchmark v1.1.0"
-            execute_audit_script "apache" "$SCRIPT_APACHE" "CIS Apache HTTP Server 2.4 Benchmark v2.4.0"
             execute_audit_script "nginx" "$SCRIPT_NGINX" "CIS NGINX Benchmark v3.0.0"
             ;;
         *)
@@ -1048,7 +1044,7 @@ interactive_loop() {
         print_launcher_banner
         print_main_menu
         local choice=""
-        if ! prompt_input "${C_BOLD}${C_CYAN}Select an audit code [1-6, or 0 to exit]: ${C_RESET}" choice; then
+        if ! prompt_input "${C_BOLD}${C_CYAN}Select an audit code [1-5, or 0 to exit]: ${C_RESET}" choice; then
             echo ""
             break
         fi
@@ -1071,9 +1067,6 @@ interactive_loop() {
             5|nginx)
                 menu_audit_nginx || menu_rc=$?
                 ;;
-            6|all)
-                menu_audit_all || menu_rc=$?
-                ;;
             0|q|exit|quit)
                 echo -e "\n${C_GREEN}[*] Exiting CIS Benchmark Security Audit Launcher.${C_RESET}"
                 break
@@ -1082,7 +1075,7 @@ interactive_loop() {
                 continue
                 ;;
             *)
-                echo -e "${C_RED}[!] Invalid selection '${choice}'. Please select audit code 1-6, or 0 to exit.${C_RESET}"
+                echo -e "${C_RED}[!] Invalid selection '${choice}'. Please select audit code 1-5, or 0 to exit.${C_RESET}"
                 sleep 1
                 continue
                 ;;
