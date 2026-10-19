@@ -420,7 +420,6 @@ BANNER
         echo -e "  ${C_RESET}"
         echo -e "  ${C_YELLOW}[!] WARNING: Running as non-root user. Re-run with 'sudo' for full audit visibility.${C_RESET}"
     fi
-    #echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
 }
 
 print_main_menu() {
