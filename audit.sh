@@ -29,9 +29,6 @@ SCRIPT_MARIADB="cis_mariadb_10.6.sh"
 SCRIPT_APACHE="cis_apache_2.4.sh"
 SCRIPT_NGINX="cis_nginx_v3.0.0.sh"
 
-SEP_LINE="===================================================================================================="
-DIV_LINE="----------------------------------------------------------------------------------------------------"
-
 # ------------------------------------------------------------------------------
 # CLI Baseline Defaults (All Profile Levels & All Sections Included by Default)
 # ------------------------------------------------------------------------------
@@ -417,14 +414,12 @@ BANNER
     echo -e "  ${C_BOLD}Audit Date      :${C_RESET} $(date -u '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)"
     echo -e "  ${C_BOLD}Script Source   :${C_RESET} ${EXEC_SOURCE}"
     if [[ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]]; then
-        echo -e "  ${C_RESET}"
-        echo -e "  ${C_YELLOW}[!] WARNING: Running as non-root user. Re-run with 'sudo' for full audit visibility.${C_RESET}"
+        echo -e "\n  ${C_YELLOW}[!] WARNING: Running as non-root user. Re-run with 'sudo' for full audit visibility.${C_RESET}"
     fi
 }
 
 print_main_menu() {
-    echo -e "\n${C_BG_BLUE} [MAIN MENU] SELECT A CIS BENCHMARK AUDIT PROGRAM ${C_RESET}"
-    #echo -e "${C_BLUE}${SEP_LINE}${C_RESET}"
+    echo -e "\n${C_BG_BLUE} [MAIN MENU] SELECT A CIS BENCHMARK AUDIT PROGRAM ${C_RESET}\n"
     printf "  ${C_CYAN}${C_BOLD}[1]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
         "CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0" "(350 Controls)" "$BADGE_UBUNTU_2604"
     printf "  ${C_CYAN}${C_BOLD}[2]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
@@ -437,8 +432,7 @@ print_main_menu() {
         "CIS NGINX Benchmark v3.0.0" "( 44 Controls)" "$BADGE_NGINX"
     printf "  ${C_GREEN}${C_BOLD}[6]${C_RESET} ${C_BOLD}%-46s${C_RESET} ${C_DIM}%-16s${C_RESET} ${C_MAGENTA}[FULL SUITE]${C_RESET}\n" \
         "Run All 5 CIS Benchmark Audits Sequentially" "(882 Controls)"
-    echo -e "  ${C_RED}${C_BOLD}[0]${C_RESET} Exit CIS Audit Launcher"
-    echo -e ""
+    echo -e "  ${C_RED}${C_BOLD}[0]${C_RESET} Exit CIS Audit Launcher\n"
 }
 
 # ------------------------------------------------------------------------------
@@ -778,11 +772,8 @@ menu_audit_nginx() {
         clear_screen
         print_launcher_banner
         format_common_labels
-        echo -e ""
-        echo -e "${C_BG_BLUE} [AUDIT CODE 5] CIS NGINX BENCHMARK v3.0.0 - AUDIT OPTIONS ${C_RESET}"
-        echo -e ""
-        echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
-        echo -e ""
+        echo -e "\n${C_BG_BLUE} [AUDIT CODE 5] CIS NGINX BENCHMARK v3.0.0 - AUDIT OPTIONS ${C_RESET}\n"
+        echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}\n"
         echo -e "  ${C_YELLOW}${C_BOLD}General Audit Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[1]${C_RESET} %-35s : %b\n" "Profile Level (-l, --level)" "$PROFILE_DISP"
         printf "    ${C_CYAN}${C_BOLD}[2]${C_RESET} %-35s : %b\n" "Quiet-OK Mode (-q, --quiet-ok)" "$QUIET_DISP"
@@ -795,8 +786,7 @@ menu_audit_nginx() {
         printf "    ${C_CYAN}${C_BOLD}[7]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Authorized Ports (-p, --ports)" "${NGINX_PORTS:-80,443 (default)}"
         echo -e ""
         print_status_notice
-        echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start NGINX 3.0.0 Audit Now    ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back"
-        echo -e ""
+        echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start NGINX 3.0.0 Audit Now    ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back\n"
 
         local sub=""
         prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, or select option [1-7, d, 0]: ${C_RESET}" sub || return 1
@@ -1044,7 +1034,7 @@ post_audit_prompt() {
         return 1
     fi
     if [[ "${cont,,}" == "0" || "${cont,,}" == "q" || "${cont,,}" == "exit" || "${cont,,}" == "quit" ]]; then
-        echo -e "${C_GREEN}[*] Exiting CIS Benchmark Security Audit Launcher.${C_RESET}"
+        echo -e "\n${C_GREEN}[*] Exiting CIS Benchmark Security Audit Launcher.${C_RESET}"
         return 1
     fi
     return 0
@@ -1085,7 +1075,7 @@ interactive_loop() {
                 menu_audit_all || menu_rc=$?
                 ;;
             0|q|exit|quit)
-                echo -e "${C_GREEN}[*] Exiting CIS Benchmark Security Audit Launcher.${C_RESET}"
+                echo -e "\n${C_GREEN}[*] Exiting CIS Benchmark Security Audit Launcher.${C_RESET}"
                 break
                 ;;
             "")
