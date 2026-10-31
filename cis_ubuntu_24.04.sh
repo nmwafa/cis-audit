@@ -3480,7 +3480,7 @@ run_section_6() {
     # 6.1.2.3 Ensure rsyslog log file creation mode is configured (Automated)
     if should_run_check "6.1.2.3" "L1"; then
         local fcm_vals fcm_ok=0 fcm_bad=0 m
-        fcm_vals="$(grep -Phsi -- '^\h*\$FileCreateMode\h+\K0[0-7]{3}\b' /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null || true)"
+        fcm_vals="$(grep -Phsio -- '^\h*\$FileCreateMode\h+\K0[0-7]{3}\b' /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null || true)"
         for m in $fcm_vals; do
             if [[ $(( m & 0137 )) -eq 0 ]]; then
                 fcm_ok=1
