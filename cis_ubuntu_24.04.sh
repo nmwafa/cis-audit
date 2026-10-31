@@ -717,7 +717,11 @@ run_section_1() {
         done
         local details="Mounted FS modules (${#a_output[@]}): [${a_output[*]}]."
         [[ "${#a_output2[@]}" -gt 0 ]] && details+=" Loaded unmounted FS modules (${#a_output2[@]}): [${a_output2[*]}]."
-        [[ "${#a_output3[@]}" -gt 0 ]] && details+=" Loadable unmounted FS modules (${#a_output3[@]}): [${a_output3[*]:0:15}${#a_output3[@]:15:+ ...}]."
+        if [[ "${#a_output3[@]}" -gt 0 ]]; then
+            local loadable_modules="${a_output3[*]:0:15}"
+            [[ "${#a_output3[@]}" -gt 15 ]] && loadable_modules+=" ..."
+            details+=" Loadable unmounted FS modules (${#a_output3[@]}): [${loadable_modules}]."
+        fi
         report_manual "1.1.1.11" "Ensure unused filesystems kernel modules are not available" "L1" "Manual" \
             "$details" \
             "Review mounted filesystems ('findmnt -Dkerno fstype | sort -u') and disable unneeded FS modules in /usr/lib/modules/*/kernel/fs/ by adding 'blacklist <mod>' and 'install <mod> /bin/false' in /etc/modprobe.d/<mod>.conf and unloading with 'modprobe -r <mod>'."
