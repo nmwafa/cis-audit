@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0 - Standalone Security Audit Script
+# CIS Ubuntu Linux 24.04 LTS Benchmark v2.0.0 - Standalone Security Audit Script
 # Benchmark:   CIS Ubuntu Linux 24.04 LTS Benchmark v2.0.0 (05-28-2026)
 # Coverage:    All 333 Recommendations (Sections 1 through 7, Level 1 & Level 2)
 # Repository:  https://github.com/nmwafa/cis-audit
@@ -23,7 +23,7 @@ QUIET_OK=0
 
 usage() {
     cat << 'USAGE'
-Usage: ./cis_ubuntu_24.04_audit.sh [OPTIONS]
+Usage: ./cis_ubuntu_24.04.sh [OPTIONS]
 
 Standalone, zero-install Bash script to audit an Ubuntu Linux server against
 all 333 recommendations in the CIS Ubuntu Linux 24.04 LTS Benchmark v2.0.0.
@@ -336,6 +336,10 @@ UID_MIN_VAL="$(awk '/^\s*UID_MIN/{print $2}' /etc/login.defs 2>/dev/null || echo
 OS_ID="$(grep '^ID=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || echo ubuntu)"
 [[ -z "$OS_ID" ]] && OS_ID="ubuntu"
 
+# Accurate package installation check (ignores 'rc' deinstall ok config-files state)
+is_pkg_installed() {
+    dpkg-query -s "$1" 2>/dev/null | grep -q '^Status: install ok installed'
+}
 # Cache expensive command outputs for speed and consistency
 SHOWCONFIG_CACHE="$(modprobe --showconfig 2>/dev/null || true)"
 LSMOD_CACHE="$(lsmod 2>/dev/null || true)"
@@ -460,6 +464,7 @@ check_mount_exists() {
 }
 
 # Check Mount Option (nodev, nosuid, noexec)
+# Per CIS Ubuntu 24.04 v2.0.0: "- IF - a separate partition exists for <mount>, verify that the <opt> option is set."
 check_mount_option() {
     local id="$1"
     local title="$2"
@@ -472,7 +477,7 @@ check_mount_option() {
     local out
     out="$(findmnt -kn "$mnt" 2>/dev/null || true)"
     if [[ -z "$out" ]]; then
-        report_fail "$id" "$title" "$level" "Automated" "${mnt} is not a separate partition, so mount option '${opt}' cannot be verified on ${mnt}" "Create a separate partition/mount for ${mnt} in /etc/fstab including the '${opt}' mount option, then run: mount -o remount ${mnt}"
+        report_ok "$id" "$title" "$level" "Automated" "${mnt} is not a separate partition (not applicable)"
         return 0
     fi
 
@@ -552,11 +557,12 @@ check_sysctl_param() {
         issues+=("Running '${param}' is '${running_val}' (expected: ${recommended_val})")
     fi
 
-    # Check persistent configuration
+    # Check persistent configuration in systemd-sysctl precedence order (tac)
     local p_grep="${param//./(\\.|\\/)}"
     local ufw_file=""
     if [[ -f /etc/default/ufw ]]; then
         ufw_file="$(awk -F= '/^\s*IPT_SYSCTL=/ {print $2}' /etc/default/ufw 2>/dev/null | tr -d '"'\'' ' || true)"
+        [[ -n "$ufw_file" ]] && ufw_file="$(readlink -e "$ufw_file" 2>/dev/null || true)"
     fi
     local files_to_check=()
     [[ -n "$ufw_file" && -f "$ufw_file" ]] && files_to_check+=("$ufw_file")
@@ -571,9 +577,10 @@ check_sysctl_param() {
             done
             [[ "$already" -eq 0 ]] && files_to_check+=("$l_fname")
         fi
-    done < <(grep -Psio -- '^\h*#\h*\/[^#\n\r\h]+\.conf\b' <<< "$SYSCTL_CAT_CACHE")
+    done < <(tac <<< "$SYSCTL_CAT_CACHE" | grep -Psio -- '^\h*#\h*\/[^#\n\r\h]+\.conf\b')
 
-    local found_persistent=0
+    local first_val=""
+    local first_file=""
     local bad_persistent=()
     local f
     for f in "${files_to_check[@]}"; do
@@ -582,18 +589,25 @@ check_sysctl_param() {
         if [[ -n "$opt" ]]; then
             local val
             val="$(cut -d= -f2 <<< "$opt" | xargs)"
-            if [[ "$val" =~ ^(${expected_regex})$ ]]; then
-                found_persistent=1
-            else
-                bad_persistent+=("${f} sets ${param}=${val}")
+            if [[ -z "$first_val" ]]; then
+                first_val="$val"
+                first_file="$f"
+            fi
+            if [[ ! "$val" =~ ^(${expected_regex})$ ]]; then
+                if [[ "$f" == "/etc/sysctl.conf" || "$f" == /etc/sysctl.d/* || "$f" == "$ufw_file" ]]; then
+                    bad_persistent+=("${f} sets ${param}=${val}")
+                fi
             fi
         fi
     done
 
+    if [[ -z "$first_val" ]]; then
+        issues+=("Parameter '${param}' is not persisted in any sysctl configuration file")
+    elif [[ ! "$first_val" =~ ^(${expected_regex})$ ]]; then
+        issues+=("Active persistent setting in '${first_file}' sets ${param}=${first_val} (expected: ${recommended_val})")
+    fi
     if [[ "${#bad_persistent[@]}" -gt 0 ]]; then
-        issues+=("Non-compliant persistent setting: $(IFS=', '; echo "${bad_persistent[*]}")")
-    elif [[ "$found_persistent" -eq 0 ]]; then
-        issues+=("Parameter '${param}' is not persisted in /etc/sysctl.conf or /etc/sysctl.d/*.conf")
+        issues+=("Non-compliant persistent setting in /etc: $(IFS=', '; echo "${bad_persistent[*]}")")
     fi
 
     if [[ "${#issues[@]}" -eq 0 ]]; then
@@ -619,7 +633,7 @@ check_service_not_in_use() {
     local installed_pkgs=()
     local pkg
     for pkg in $pkgs; do
-        if dpkg-query -s "$pkg" &>/dev/null; then
+        if is_pkg_installed "$pkg"; then
             installed_pkgs+=("$pkg")
         fi
     done
@@ -673,26 +687,40 @@ run_section_1() {
 
     # 1.1.1.11 Ensure unused filesystems kernel modules are not available (Manual)
     if should_run_check "1.1.1.11" "L1"; then
-        local a_mounted a_loaded_fs=() a_loadable_fs=()
+        local l_search a_mounted a_lsmod a_module=() a_output=() a_output2=() a_output3=()
+        l_search="$(readlink -e /usr/lib/modules/ 2>/dev/null || readlink -e /lib/modules/ 2>/dev/null || true)"
         a_mounted="$(findmnt -Dkerno fstype 2>/dev/null | sort -u | tr '\n' ' ')"
-        local cve_fs=("ceph" "cifs" "exfat" "ext" "fat" "fscache" "fuse" "gfs2" "nfs_common" "nfsd" "smbfs_common")
-        local m
-        for m in "${cve_fs[@]}"; do
-            local m_under="${m//-/_}"
-            if ! grep -Pq "\b${m}\b" <<< "$a_mounted"; then
-                if grep -Pq "\b${m_under}\b" <<< "$LSMOD_CACHE"; then
-                    a_loaded_fs+=("$m")
-                elif ! grep -Pq "^\h*blacklist\h+${m_under}\b" <<< "$SHOWCONFIG_CACHE" || ! grep -Pq "^\h*install\h+${m_under}\h+/bin/(false|true)\b" <<< "$SHOWCONFIG_CACHE"; then
-                    a_loadable_fs+=("$m")
+        a_lsmod="$(awk 'NR>1 {print $1}' <<< "$LSMOD_CACHE" | tr '\n' ' ')"
+        if [[ -n "$l_search" ]]; then
+            local l_module_dir l_module_file l_mname
+            while IFS= read -r -d $'\0' l_module_dir; do
+                if [[ "$(basename "$l_module_dir")" != "nls" ]]; then
+                    while IFS= read -r -d $'\0' l_module_file; do
+                        l_mname="$(basename "$l_module_file" | cut -d'.' -f1)"
+                        if [[ -f "$l_module_file" ]] && ! grep -Psiq -- "\b${l_mname}\b" <<< "${a_module[*]}"; then
+                            a_module+=("$l_mname")
+                        fi
+                    done < <(find -L "$l_module_dir" -mindepth 1 -maxdepth 1 -type f -print0 2>/dev/null)
                 fi
+            done < <(find "$l_search"/*/kernel/fs/ -mindepth 1 -maxdepth 1 -type d ! -empty -print0 2>/dev/null)
+        fi
+        local l_module
+        for l_module in "${a_module[@]}"; do
+            if grep -Psiq -- "\b${l_module}\b" <<< "$a_mounted"; then
+                a_output+=("$l_module")
+            elif grep -Psiq -- "\b${l_module}\b" <<< "$a_lsmod"; then
+                a_output2+=("$l_module")
+            elif ! grep -Psiq -- "\binstall\h+${l_module//-/_}\h+\H+\b" <<< "$SHOWCONFIG_CACHE" || \
+                 ! grep -Psiq -- "\bblacklist\h+${l_module//-/_}\b" <<< "$SHOWCONFIG_CACHE"; then
+                a_output3+=("$l_module")
             fi
         done
-        local details="Mounted filesystems: [${a_mounted% }]."
-        [[ "${#a_loaded_fs[@]}" -gt 0 ]] && details+=" Unmounted FS modules currently loaded: [${a_loaded_fs[*]}]."
-        [[ "${#a_loadable_fs[@]}" -gt 0 ]] && details+=" Unmounted FS modules with known CVEs still loadable: [${a_loadable_fs[*]}]."
+        local details="Mounted FS modules (${#a_output[@]}): [${a_output[*]}]."
+        [[ "${#a_output2[@]}" -gt 0 ]] && details+=" Loaded unmounted FS modules (${#a_output2[@]}): [${a_output2[*]}]."
+        [[ "${#a_output3[@]}" -gt 0 ]] && details+=" Loadable unmounted FS modules (${#a_output3[@]}): [${a_output3[*]:0:15}${#a_output3[@]:15:+ ...}]."
         report_manual "1.1.1.11" "Ensure unused filesystems kernel modules are not available" "L1" "Manual" \
             "$details" \
-            "Review mounted filesystems ('findmnt -Dkerno fstype | sort -u') and disable unneeded FS modules (e.g. ceph, cifs, exfat, fat, fuse, gfs2, nfsd) by adding 'blacklist <mod>' and 'install <mod> /bin/false' in /etc/modprobe.d/<mod>.conf and unloading with 'modprobe -r <mod>'."
+            "Review mounted filesystems ('findmnt -Dkerno fstype | sort -u') and disable unneeded FS modules in /usr/lib/modules/*/kernel/fs/ by adding 'blacklist <mod>' and 'install <mod> /bin/false' in /etc/modprobe.d/<mod>.conf and unloading with 'modprobe -r <mod>'."
     fi
 
     # --------------------------------------------------------------------------
@@ -747,7 +775,8 @@ run_section_1() {
 
     # 1.2.1.1 Ensure the source.list and .source files use the Signed-By option (Manual)
     if should_run_check "1.2.1.1" "L1"; then
-        local unsigned_list unsigned_sources=""
+        local unsigned_files unsigned_list unsigned_sources=""
+        unsigned_files="$(grep -PRiLs -- '^([^#\n\r]+)?\bSigned-By\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null | while IFS= read -r f; do grep -Pq '^\h*[^#\s]' "$f" 2>/dev/null && echo "$f"; done | tr '\n' ' ' || true)"
         unsigned_list="$(grep -PRn -- '^\h*(deb(-src)?)\h+(\[(?![^\]]*\bSigned-By\b)[^\]]*\]|[^\[])' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true)"
         local sfile
         for sfile in /etc/apt/sources.list.d/*.sources; do
@@ -766,11 +795,11 @@ run_section_1() {
             ' "$sfile" 2>/dev/null)"
             [[ -n "$sout" ]] && unsigned_sources+="${sout}; "
         done
-        if [[ -z "$unsigned_list" && -z "$unsigned_sources" ]]; then
+        if [[ -z "$unsigned_files" && -z "$unsigned_list" && -z "$unsigned_sources" ]]; then
             report_ok "1.2.1.1" "Ensure the source.list and .source files use the Signed-By option" "L1" "Manual" "All APT source entries include Signed-By"
         else
-            report_fail "1.2.1.1" "Ensure the source.list and .source files use the Signed-By option" "L1" "Manual" \
-                "Entries missing Signed-By: ${unsigned_list} ${unsigned_sources}" \
+            report_manual "1.2.1.1" "Ensure the source.list and .source files use the Signed-By option" "L1" "Manual" \
+                "Files/entries missing Signed-By: ${unsigned_files} ${unsigned_list} ${unsigned_sources}" \
                 "Update /etc/apt/sources.list and files in /etc/apt/sources.list.d/ so every repository stanza/line includes 'Signed-By=/usr/share/keyrings/<keyring>.gpg'."
         fi
     fi
@@ -806,12 +835,10 @@ run_section_1() {
             fi
         done < <(grep -PRho -- '\bSigned-By\b\s*[=:]\s*\K\S+' /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null | sort -u)
         while IFS= read -r -d $'\0' sfile; do
-            if grep -Piq -- '\bSigned-By\b' "$sfile" 2>/dev/null; then
-                if stat -Lc 'Mode: (%#a) User: (%U) Group: (%G)' "$sfile" 2>/dev/null | grep -Pvq -- 'Mode: \(0?6[04][04]\) User: \(root\) Group: \(root\)'; then
-                    bad_gpg+=("$(stat -Lc '%n (%#a %U:%G)' "$sfile" 2>/dev/null)")
-                fi
+            if grep -PRiq -- '^([^#\n\r]+)?\bSigned-By\b' "$sfile" 2>/dev/null; then
+                bad_gpg+=("$(stat -Lc '%n (%#a %U:%G)' "$sfile" 2>/dev/null)")
             fi
-        done < <(find -L /etc/apt/sources.list.d/ -mount -xdev -type f \( -name '*.list' -o -name '*.sources' \) -print0 2>/dev/null)
+        done < <(find -L /etc/apt/sources.list.d/ -mount -xdev -type f \( ! -user root -o ! -group root -o -perm /133 \) \( -name '*.list' -o -name '*.sources' \) -print0 2>/dev/null)
         if [[ "${#bad_gpg[@]}" -eq 0 ]]; then
             report_ok "1.2.1.3" "Ensure access to gpg key files are configured" "L1" "Automated"
         else
@@ -896,7 +923,7 @@ run_section_1() {
 
     # 1.3.1.1 Ensure apparmor packages are installed (Automated)
     if should_run_check "1.3.1.1" "L1"; then
-        if dpkg-query -s apparmor &>/dev/null && dpkg-query -s apparmor-utils &>/dev/null; then
+        if is_pkg_installed apparmor && is_pkg_installed apparmor-utils; then
             report_ok "1.3.1.1" "Ensure apparmor packages are installed" "L1" "Automated"
         else
             report_fail "1.3.1.1" "Ensure apparmor packages are installed" "L1" "Automated" \
@@ -907,18 +934,16 @@ run_section_1() {
 
     # 1.3.1.2 Ensure AppArmor is enabled (Automated)
     if should_run_check "1.3.1.2" "L1"; then
-        local aa_grub1 aa_grub2 aa_en aa_act aa_prof
+        local aa_grub1
         aa_grub1="$(grep '^\s*linux' /boot/grub/grub.cfg 2>/dev/null | grep 'apparmor=0' || true)"
-        aa_grub2="$(grep 'apparmor=0' /etc/default/grub.d/apparmor.cfg 2>/dev/null || true)"
-        aa_en="$(systemctl is-enabled apparmor.service 2>/dev/null || true)"
-        aa_act="$(systemctl is-active apparmor.service 2>/dev/null || true)"
-        aa_prof="$(/usr/sbin/apparmor_status 2>/dev/null | awk '/profiles are loaded/{print $1}' || echo 0)"
-        if [[ -z "$aa_grub1" && -z "$aa_grub2" && "$aa_en" == "enabled" && "$aa_act" == "active" && "${aa_prof:-0}" -gt 0 ]]; then
-            report_ok "1.3.1.2" "Ensure AppArmor is enabled" "L1" "Automated" "${aa_prof} profiles loaded"
+        if [[ -f /boot/grub/grub.cfg && -z "$aa_grub1" ]]; then
+            report_ok "1.3.1.2" "Ensure AppArmor is enabled" "L1" "Automated" "No 'apparmor=0' found in /boot/grub/grub.cfg"
+        elif [[ ! -f /boot/grub/grub.cfg ]] && [[ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null || echo N)" == "Y" ]]; then
+            report_ok "1.3.1.2" "Ensure AppArmor is enabled" "L1" "Automated" "AppArmor enabled in kernel"
         else
             report_fail "1.3.1.2" "Ensure AppArmor is enabled" "L1" "Automated" \
-                "apparmor.service enabled=${aa_en}, active=${aa_act}, profiles_loaded=${aa_prof:-0}, grub_disabled=${aa_grub1}${aa_grub2}" \
-                "Remove 'apparmor=0' from /etc/default/grub and /etc/default/grub.d/*, run 'update-grub', enable 'systemctl --now enable apparmor.service', and reboot."
+                "AppArmor disabled in /boot/grub/grub.cfg (${aa_grub1:-/boot/grub/grub.cfg missing and AppArmor kernel module not enabled})" \
+                "Remove 'apparmor=0' from GRUB_CMDLINE_LINUX in /etc/default/grub and /etc/default/grub.d/*, then run: update-grub"
         fi
     fi
 
@@ -990,7 +1015,7 @@ run_section_1() {
 
     # 1.5.6 Ensure prelink is not installed (Automated)
     if should_run_check "1.5.6" "L1"; then
-        if ! dpkg-query -s prelink &>/dev/null; then
+        if ! is_pkg_installed prelink; then
             report_ok "1.5.6" "Ensure prelink is not installed" "L1" "Automated"
         else
             report_fail "1.5.6" "Ensure prelink is not installed" "L1" "Automated" \
@@ -1002,7 +1027,7 @@ run_section_1() {
     # 1.5.7 Ensure Automatic Error Reporting is configured (Automated)
     if should_run_check "1.5.7" "L1"; then
         local apport_en="" apport_act=""
-        if dpkg-query -s apport &>/dev/null; then
+        if is_pkg_installed apport; then
             apport_en="$(grep -Psi -- '^\h*enabled\h*=\h*[^0]\b' /etc/default/apport 2>/dev/null || true)"
         fi
         apport_act="$(systemctl is-active apport.service 2>/dev/null | grep '^active' || true)"
@@ -1037,46 +1062,74 @@ run_section_1() {
 
     # 1.5.11 Ensure systemd-coredump ProcessSizeMax is configured (Automated)
     if should_run_check "1.5.11" "L1"; then
-        if ! dpkg-query -s systemd-coredump &>/dev/null && [[ ! -e /etc/systemd/coredump.conf && ! -e /usr/lib/systemd/coredump.conf ]]; then
-            report_ok "1.5.11" "Ensure systemd-coredump ProcessSizeMax is configured" "L1" "Automated" "systemd-coredump not installed"
+        if ! is_pkg_installed systemd-coredump; then
+            report_ok "1.5.11" "Ensure systemd-coredump ProcessSizeMax is configured" "L1" "Automated" "systemd-coredump package is not installed"
         else
-            local psm_val=""
-            local cf
-            for cf in /etc/systemd/coredump.conf /etc/systemd/coredump.conf.d/*.conf; do
-                [[ -f "$cf" ]] || continue
+            local l_analyze_cmd psm_val="" psm_bad=() cf
+            l_analyze_cmd="$(readlink -e /bin/systemd-analyze 2>/dev/null || readlink -e /usr/bin/systemd-analyze 2>/dev/null || true)"
+            local cfiles=()
+            if [[ -n "$l_analyze_cmd" ]]; then
+                while IFS= read -r cf; do
+                    cf="${cf//# /}"
+                    [[ -f "$cf" ]] && cfiles+=("$cf")
+                done < <("$l_analyze_cmd" cat-config systemd/coredump.conf 2>/dev/null | tac | grep -Pio '^\h*#\h*\/[^#\n\r\h]+\.conf\b')
+            fi
+            if [[ "${#cfiles[@]}" -eq 0 ]]; then
+                for cf in /etc/systemd/coredump.conf.d/*.conf /etc/systemd/coredump.conf /usr/lib/systemd/coredump.conf; do
+                    [[ -f "$cf" ]] && cfiles+=("$cf")
+                done
+            fi
+            for cf in "${cfiles[@]}"; do
                 local v
                 v="$(awk '/\[Coredump\]/{a=1;next}/\[/{a=0}a' "$cf" 2>/dev/null | grep -Poi '^\h*ProcessSizeMax\h*=\h*\K\H+' | tail -n 1 || true)"
-                [[ -n "$v" ]] && psm_val="$v"
+                if [[ -n "$v" ]]; then
+                    [[ -z "$psm_val" ]] && psm_val="$v"
+                    [[ "$v" != "0" && "$cf" == /etc/* ]] && psm_bad+=("${cf} (${v})")
+                fi
             done
-            if [[ "$psm_val" == "0" ]]; then
+            if [[ "$psm_val" == "0" && "${#psm_bad[@]}" -eq 0 ]]; then
                 report_ok "1.5.11" "Ensure systemd-coredump ProcessSizeMax is configured" "L1" "Automated" "ProcessSizeMax=0"
             else
                 report_fail "1.5.11" "Ensure systemd-coredump ProcessSizeMax is configured" "L1" "Automated" \
-                    "ProcessSizeMax is '${psm_val:-not set (default 2G)}' (expected: 0)" \
-                    "Create /etc/systemd/coredump.conf.d/60-coredump.conf with '[Coredump]' and 'ProcessSizeMax=0', then run: systemctl reload-or-restart systemd-coredump.socket"
+                    "ProcessSizeMax is '${psm_val:-not set}' (expected: 0; conflicting files: ${psm_bad[*]:-none})" \
+                    "Create /etc/systemd/coredump.conf.d/60-coredump.conf with '[Coredump]' and 'ProcessSizeMax=0', then run: systemctl daemon-reload"
             fi
         fi
     fi
 
     # 1.5.12 Ensure systemd-coredump Storage is configured (Automated)
     if should_run_check "1.5.12" "L1"; then
-        if ! dpkg-query -s systemd-coredump &>/dev/null && [[ ! -e /etc/systemd/coredump.conf && ! -e /usr/lib/systemd/coredump.conf ]]; then
-            report_ok "1.5.12" "Ensure systemd-coredump Storage is configured" "L1" "Automated" "systemd-coredump not installed"
+        if ! is_pkg_installed systemd-coredump; then
+            report_ok "1.5.12" "Ensure systemd-coredump Storage is configured" "L1" "Automated" "systemd-coredump package is not installed"
         else
-            local st_val=""
-            local cf
-            for cf in /etc/systemd/coredump.conf /etc/systemd/coredump.conf.d/*.conf; do
-                [[ -f "$cf" ]] || continue
+            local l_analyze_cmd st_val="" st_bad=() cf
+            l_analyze_cmd="$(readlink -e /bin/systemd-analyze 2>/dev/null || readlink -e /usr/bin/systemd-analyze 2>/dev/null || true)"
+            local cfiles=()
+            if [[ -n "$l_analyze_cmd" ]]; then
+                while IFS= read -r cf; do
+                    cf="${cf//# /}"
+                    [[ -f "$cf" ]] && cfiles+=("$cf")
+                done < <("$l_analyze_cmd" cat-config systemd/coredump.conf 2>/dev/null | tac | grep -Pio '^\h*#\h*\/[^#\n\r\h]+\.conf\b')
+            fi
+            if [[ "${#cfiles[@]}" -eq 0 ]]; then
+                for cf in /etc/systemd/coredump.conf.d/*.conf /etc/systemd/coredump.conf /usr/lib/systemd/coredump.conf; do
+                    [[ -f "$cf" ]] && cfiles+=("$cf")
+                done
+            fi
+            for cf in "${cfiles[@]}"; do
                 local v
                 v="$(awk '/\[Coredump\]/{a=1;next}/\[/{a=0}a' "$cf" 2>/dev/null | grep -Poi '^\h*Storage\h*=\h*\K\H+' | tail -n 1 || true)"
-                [[ -n "$v" ]] && st_val="$v"
+                if [[ -n "$v" ]]; then
+                    [[ -z "$st_val" ]] && st_val="$v"
+                    [[ "${v,,}" != "none" && "$cf" == /etc/* ]] && st_bad+=("${cf} (${v})")
+                fi
             done
-            if [[ "${st_val,,}" == "none" ]]; then
+            if [[ "${st_val,,}" == "none" && "${#st_bad[@]}" -eq 0 ]]; then
                 report_ok "1.5.12" "Ensure systemd-coredump Storage is configured" "L1" "Automated" "Storage=none"
             else
                 report_fail "1.5.12" "Ensure systemd-coredump Storage is configured" "L1" "Automated" \
-                    "Storage is '${st_val:-not set (default external)}' (expected: none)" \
-                    "Create /etc/systemd/coredump.conf.d/60-coredump.conf with '[Coredump]' and 'Storage=none', then run: systemctl reload-or-restart systemd-coredump.socket"
+                    "Storage is '${st_val:-not set}' (expected: none; conflicting files: ${st_bad[*]:-none})" \
+                    "Create /etc/systemd/coredump.conf.d/60-coredump.conf with '[Coredump]' and 'Storage=none', then run: systemctl daemon-reload"
             fi
         fi
     fi
@@ -1089,13 +1142,13 @@ run_section_1() {
     # 1.6.1 Ensure /etc/motd is configured (Automated)
     if should_run_check "1.6.1" "L1"; then
         local motd_bad
-        motd_bad="$(grep -Psi -- "(\\\v|\\\r|\\\m|\\\s|\b${OS_ID}\b)" /etc/motd /etc/motd.d/* 2>/dev/null || true)"
+        motd_bad="$(grep -Psi -- "(\\\v|\\\r|\\\m|\\\s|\b${OS_ID}\b)" /etc/motd /run/motd /usr/lib/motd /etc/motd.d/* /run/motd.d/* /usr/lib/motd.d/* /etc/update-motd.d/* 2>/dev/null || true)"
         if [[ -z "$motd_bad" ]]; then
             report_ok "1.6.1" "Ensure /etc/motd is configured" "L1" "Automated"
         else
             report_fail "1.6.1" "Ensure /etc/motd is configured" "L1" "Automated" \
-                "OS/system information found in MOTD: ${motd_bad}" \
-                "Edit /etc/motd and /etc/motd.d/* to remove any instances of \m, \r, \s, \v, or references to the OS platform (or 'rm /etc/motd' if not used)."
+                "OS/system information found in MOTD files: ${motd_bad}" \
+                "Edit /etc/motd, /etc/motd.d/*, and /etc/update-motd.d/* to remove any instances of \m, \r, \s, \v, or references to the OS platform (or 'rm /etc/motd' if not used)."
         fi
     fi
 
@@ -1103,11 +1156,11 @@ run_section_1() {
     if should_run_check "1.6.2" "L1"; then
         local issue_bad
         issue_bad="$(grep -Psi -- "(\\\v|\\\r|\\\m|\\\s|\b${OS_ID}\b)" /etc/issue /usr/lib/issue.d/* /etc/issue.d/* /run/issue.d/* 2>/dev/null || true)"
-        if [[ -s /etc/issue && -z "$issue_bad" ]]; then
+        if [[ -z "$issue_bad" ]]; then
             report_ok "1.6.2" "Ensure /etc/issue is configured" "L1" "Automated"
         else
             report_fail "1.6.2" "Ensure /etc/issue is configured" "L1" "Automated" \
-                "/etc/issue is empty or contains OS escape sequences/identifiers: ${issue_bad}" \
+                "/etc/issue or issue.d files contain OS escape sequences/identifiers: ${issue_bad}" \
                 "Run: echo 'Authorized users only. All activity may be monitored and reported.' > /etc/issue (and remove OS info from /etc/issue.d/*)."
         fi
     fi
@@ -1189,7 +1242,7 @@ run_section_1() {
             [[ -f "$rmf" ]] || continue
             local m u g
             read -r m u g <<< "$(stat -Lc '%#a %U %G' "$rmf" 2>/dev/null)"
-            if [[ $(( m & 0133 )) -gt 0 && ! "$rmf" =~ ^/etc/update-motd\.d/ ]] || [[ $(( m & 0022 )) -gt 0 ]] || [[ "$u" != "root" || "$g" != "root" ]]; then
+            if [[ $(( m & 0133 )) -gt 0 || "$u" != "root" || "$g" != "root" ]]; then
                 bad_motd_perms+=("${rmf} (${m} ${u}:${g})")
             fi
         done
@@ -1198,18 +1251,35 @@ run_section_1() {
         else
             report_fail "1.6.6" "Ensure access to /etc/motd is configured" "L1" "Automated" \
                 "Improper permissions/ownership on MOTD files: ${bad_motd_perms[*]}" \
-                "Run: chown root:root \$(readlink -e /etc/motd) && chmod u-x,go-wx \$(readlink -e /etc/motd)"
+                "Run: chown root:root /etc/motd /etc/motd.d/* /etc/update-motd.d/* 2>/dev/null && chmod u-x,go-wx /etc/motd /etc/motd.d/* /etc/update-motd.d/* 2>/dev/null"
         fi
     fi
 
     # 1.6.7 Ensure access to /etc/issue is configured (Automated)
-    check_file_perms "1.6.7" "Ensure access to /etc/issue is configured" "L1" \
-        "$(readlink -e /etc/issue 2>/dev/null || echo /etc/issue)" "0133" "0644" "root" "root" "0" \
-        "chmod u-x,go-wx \$(readlink -e /etc/issue)" "chown root:root \$(readlink -e /etc/issue)"
+    if should_run_check "1.6.7" "L1"; then
+        local bad_issue_perms=() isf
+        for isf in /etc/issue /usr/lib/issue.d/* /etc/issue.d/* /run/issue.d/*; do
+            [[ -e "$isf" ]] || continue
+            local risf m u g
+            risf="$(readlink -e "$isf" 2>/dev/null || true)"
+            [[ -f "$risf" ]] || continue
+            read -r m u g <<< "$(stat -Lc '%#a %U %G' "$risf" 2>/dev/null)"
+            if [[ $(( m & 0133 )) -gt 0 || "$u" != "root" || "$g" != "root" ]]; then
+                bad_issue_perms+=("${risf} (${m} ${u}:${g})")
+            fi
+        done
+        if [[ "${#bad_issue_perms[@]}" -eq 0 ]]; then
+            report_ok "1.6.7" "Ensure access to /etc/issue is configured" "L1" "Automated"
+        else
+            report_fail "1.6.7" "Ensure access to /etc/issue is configured" "L1" "Automated" \
+                "Improper permissions/ownership on issue files: ${bad_issue_perms[*]}" \
+                "Run: chown root:root \$(readlink -e /etc/issue) /etc/issue.d/* 2>/dev/null && chmod u-x,go-wx \$(readlink -e /etc/issue) /etc/issue.d/* 2>/dev/null"
+        fi
+    fi
 
     # 1.6.8 Ensure access to /etc/issue.net is configured (Automated)
     check_file_perms "1.6.8" "Ensure access to /etc/issue.net is configured" "L1" \
-        "$(readlink -e /etc/issue.net 2>/dev/null || echo /etc/issue.net)" "0133" "0644" "root" "root" "0" \
+        "$(readlink -e /etc/issue.net 2>/dev/null || echo /etc/issue.net)" "0133" "0644" "root" "root" "1" \
         "chmod u-x,go-wx \$(readlink -e /etc/issue.net)" "chown root:root \$(readlink -e /etc/issue.net)"
 
     # 1.6.9 Ensure access to pam_motd file is configured (Automated)
@@ -1252,7 +1322,7 @@ run_section_1() {
     print_subsection_header "1.7 Configure GNOME Display Manager"
 
     local gdm_installed=0
-    if dpkg-query -s gdm3 &>/dev/null || dpkg-query -s gdm &>/dev/null; then
+    if is_pkg_installed gdm3 || is_pkg_installed gdm; then
         gdm_installed=1
     fi
 
@@ -1379,14 +1449,18 @@ run_section_1() {
             local wl_disabled=""
             local gf
             for gf in /etc/gdm3/custom.conf /etc/gdm3/daemon.conf /etc/gdm/custom.conf /etc/gdm/daemon.conf; do
-                [[ -f "$gf" ]] && grep -Piq '^\h*WaylandEnable\h*=\h*false\b' "$gf" 2>/dev/null && wl_disabled="$gf"
+                [[ -f "$gf" ]] || continue
+                if sed -n '/\[daemon\]/,/\[/p' "$gf" 2>/dev/null | grep -Psiq '^\h*WaylandEnable\h*=\h*false\b'; then
+                    wl_disabled="$gf"
+                    break
+                fi
             done
             if [[ -n "$wl_disabled" ]]; then
-                report_ok "1.7.7" "Ensure Xwayland is configured" "L2" "Automated" "WaylandEnable=false in ${wl_disabled}"
+                report_ok "1.7.7" "Ensure Xwayland is configured" "L2" "Automated" "WaylandEnable=false under [daemon] in ${wl_disabled}"
             else
                 report_fail "1.7.7" "Ensure Xwayland is configured" "L2" "Automated" \
-                    "WaylandEnable=false not set in GDM configuration" \
-                    "Add 'WaylandEnable=false' under the [daemon] block in /etc/gdm3/custom.conf."
+                    "WaylandEnable=false not set under [daemon] in GDM configuration" \
+                    "Add 'WaylandEnable=false' under the [daemon] block in /etc/gdm3/custom.conf (or /etc/gdm/custom.conf)."
             fi
         fi
     fi
@@ -1448,9 +1522,46 @@ run_section_2() {
             "Review 'ss -plntu' output and stop/mask or purge any unapproved listening services ('systemctl stop <svc> && apt purge <pkg>')."
     fi
 
-    # 2.1.5 - 2.1.22 Server Services
-    check_service_not_in_use "2.1.5" "Ensure dhcp server services are not in use" "L1" "kea isc-dhcp-server" "kea-dhcp-ddns-server.service kea-dhcp4-server.service kea-dhcp6-server.service isc-dhcp-server.service isc-dhcp-server6.service"
-    check_service_not_in_use "2.1.6" "Ensure web server services are not in use" "L1" "apache2 nginx" "apache2.socket apache2.service nginx.service"
+    # 2.1.5 Ensure dhcp server services are not in use (Automated)
+    if should_run_check "2.1.5" "L1"; then
+        local kea_pkgs dhcp_units="kea-dhcp-ddns-server.service kea-dhcp4-server.service kea-dhcp6-server.service isc-dhcp-server.service isc-dhcp-server6.service"
+        kea_pkgs="$(dpkg-query -l 2>/dev/null | awk '$1=="ii" {print $2}' | grep -Pi -- '^(kea|isc-dhcp-server)' | tr '\n' ' ' || true)"
+        if [[ -z "$kea_pkgs" ]]; then
+            report_ok "2.1.5" "Ensure dhcp server services are not in use" "L1" "Automated" "kea / isc-dhcp-server packages not installed"
+        else
+            local dhcp_act
+            dhcp_act="$(systemctl show $dhcp_units -p UnitFileState,ActiveState 2>/dev/null | grep -Pi '=(enabled|active)' | tr '\n' ' ' || true)"
+            if [[ -z "$dhcp_act" ]]; then
+                report_ok "2.1.5" "Ensure dhcp server services are not in use" "L1" "Automated" "Package(s) (${kea_pkgs% }) installed for dependency, but services disabled & inactive"
+            else
+                report_fail "2.1.5" "Ensure dhcp server services are not in use" "L1" "Automated" \
+                    "DHCP server package(s) (${kea_pkgs% }) installed and active/enabled (${dhcp_act% })" \
+                    "Run: systemctl stop ${dhcp_units} && apt purge -y kea* isc-dhcp-server (or systemctl mask ${dhcp_units})"
+            fi
+        fi
+    fi
+
+    # 2.1.6 Ensure web server services are not in use (Automated)
+    if should_run_check "2.1.6" "L1"; then
+        local web_issues=()
+        if is_pkg_installed apache2; then
+            if systemctl show apache2.socket apache2.service -p UnitFileState,ActiveState 2>/dev/null | grep -Piq '=(enabled|active)'; then
+                web_issues+=("apache2 is installed and apache2.socket/apache2.service is enabled or active")
+            fi
+        fi
+        if is_pkg_installed nginx; then
+            if systemctl show nginx.service -p UnitFileState,ActiveState 2>/dev/null | grep -Piq '=(enabled|active)'; then
+                web_issues+=("nginx is installed and nginx.service is enabled or active")
+            fi
+        fi
+        if [[ "${#web_issues[@]}" -eq 0 ]]; then
+            report_ok "2.1.6" "Ensure web server services are not in use" "L1" "Automated"
+        else
+            report_fail "2.1.6" "Ensure web server services are not in use" "L1" "Automated" \
+                "$(IFS='; '; echo "${web_issues[*]}")" \
+                "Run: systemctl stop apache2.socket apache2.service nginx.service 2>/dev/null; apt purge -y apache2 nginx (or mask the services if required as dependencies)"
+        fi
+    fi
     check_service_not_in_use "2.1.7" "Ensure dns server services are not in use" "L1" "bind9" "named.service"
     check_service_not_in_use "2.1.8" "Ensure ftp server services are not in use" "L1" "vsftpd" "vsftpd.service"
     check_service_not_in_use "2.1.9" "Ensure dnsmasq services are not in use" "L1" "dnsmasq" "dnsmasq.service"
@@ -1470,7 +1581,7 @@ run_section_2() {
 
     # 2.1.23 Ensure X window server services are not in use (Automated)
     if should_run_check "2.1.23" "L2"; then
-        if ! dpkg-query -s xserver-common &>/dev/null; then
+        if ! is_pkg_installed xserver-common; then
             report_ok "2.1.23" "Ensure X window server services are not in use" "L2" "Automated"
         else
             report_fail "2.1.23" "Ensure X window server services are not in use" "L2" "Automated" \
@@ -1486,7 +1597,7 @@ run_section_2() {
 
     # 2.2.1 Ensure nis client is not installed (Automated)
     if should_run_check "2.2.1" "L1"; then
-        if ! dpkg-query -s nis &>/dev/null; then
+        if ! is_pkg_installed nis; then
             report_ok "2.2.1" "Ensure nis client is not installed" "L1" "Automated"
         else
             report_fail "2.2.1" "Ensure nis client is not installed" "L1" "Automated" "Package 'nis' is installed" "Run: apt purge -y nis"
@@ -1495,7 +1606,7 @@ run_section_2() {
 
     # 2.2.2 Ensure rsh client is not installed (Automated)
     if should_run_check "2.2.2" "L1"; then
-        if ! dpkg-query -s rsh-client &>/dev/null; then
+        if ! is_pkg_installed rsh-client; then
             report_ok "2.2.2" "Ensure rsh client is not installed" "L1" "Automated"
         else
             report_fail "2.2.2" "Ensure rsh client is not installed" "L1" "Automated" "Package 'rsh-client' is installed" "Run: apt purge -y rsh-client"
@@ -1504,7 +1615,7 @@ run_section_2() {
 
     # 2.2.3 Ensure talk client is not installed (Automated)
     if should_run_check "2.2.3" "L1"; then
-        if ! dpkg-query -s talk &>/dev/null; then
+        if ! is_pkg_installed talk; then
             report_ok "2.2.3" "Ensure talk client is not installed" "L1" "Automated"
         else
             report_fail "2.2.3" "Ensure talk client is not installed" "L1" "Automated" "Package 'talk' is installed" "Run: apt purge -y talk"
@@ -1515,7 +1626,7 @@ run_section_2() {
     if should_run_check "2.2.4" "L1"; then
         local tel_pkgs=() p
         for p in telnet inetutils-telnet telnet-ssl; do
-            dpkg-query -s "$p" 2>/dev/null | grep -q '^Status: install ok installed' && tel_pkgs+=("$p")
+            is_pkg_installed "$p" && tel_pkgs+=("$p")
         done
         if [[ "${#tel_pkgs[@]}" -eq 0 ]]; then
             report_ok "2.2.4" "Ensure telnet client is not installed" "L1" "Automated"
@@ -1528,7 +1639,7 @@ run_section_2() {
 
     # 2.2.5 Ensure ldap client is not installed (Automated)
     if should_run_check "2.2.5" "L1"; then
-        if ! dpkg-query -s ldap-utils &>/dev/null; then
+        if ! is_pkg_installed ldap-utils; then
             report_ok "2.2.5" "Ensure ldap client is not installed" "L1" "Automated"
         else
             report_fail "2.2.5" "Ensure ldap client is not installed" "L1" "Automated" "Package 'ldap-utils' is installed" "Run: apt purge -y ldap-utils"
@@ -1620,13 +1731,26 @@ run_section_2() {
         if [[ "$tsd_in_use" -eq 1 && "$chrony_in_use" -eq 0 ]]; then
             report_ok "2.3.3.1" "Ensure chrony is configured" "L1" "Automated" "Skipped: systemd-timesyncd is used"
         else
-            local chr_srv
-            chr_srv="$(grep -PRsi -- '^\h*(server|pool)\h+\S+' /etc/chrony/chrony.conf /etc/chrony/sources.d/ /etc/chrony/conf.d/ 2>/dev/null || true)"
+            local a_chr_files=("/etc/chrony/chrony.conf") l_conf_loc l_dir l_ext l_f chr_srv=""
+            while IFS= read -r l_conf_loc; do
+                l_dir=""; l_ext=""
+                if [[ -d "$l_conf_loc" ]]; then
+                    l_dir="$l_conf_loc"; l_ext="*"
+                elif grep -Psq '\/\*\.([^#/\n\r]+)?\h*$' <<< "$l_conf_loc" || [[ -f "$(readlink -f "$l_conf_loc" 2>/dev/null)" ]]; then
+                    l_dir="$(dirname "$l_conf_loc")"; l_ext="$(basename "$l_conf_loc")"
+                fi
+                if [[ -n "$l_dir" && -n "$l_ext" ]]; then
+                    while IFS= read -r -d $'\0' l_f; do
+                        [[ -f "$(readlink -f "$l_f" 2>/dev/null)" ]] && a_chr_files+=("$(readlink -f "$l_f")")
+                    done < <(find -L "$l_dir" -type f -name "$l_ext" -print0 2>/dev/null)
+                fi
+            done < <(awk '$1~/^\s*(confdir|sourcedir)$/{print $2}' /etc/chrony/chrony.conf 2>/dev/null)
+            chr_srv="$(grep -Psi -- '^\h*(server|pool)(\h+|\h*:\h*).+\b' "${a_chr_files[@]}" /etc/chrony/sources.d/* /etc/chrony/conf.d/* 2>/dev/null || true)"
             if [[ -n "$chr_srv" ]]; then
                 report_ok "2.3.3.1" "Ensure chrony is configured" "L1" "Automated"
             else
                 report_fail "2.3.3.1" "Ensure chrony is configured" "L1" "Automated" \
-                    "No 'server' or 'pool' directive found in /etc/chrony/chrony.conf or /etc/chrony/sources.d/" \
+                    "No 'server' or 'pool' directive found in /etc/chrony/chrony.conf or included confdir/sourcedir" \
                     "Add 'pool time.nist.gov iburst maxsources 4' to /etc/chrony/sources.d/60-sources.sources and run: systemctl reload-or-restart chronyd"
             fi
         fi
@@ -1672,9 +1796,14 @@ run_section_2() {
     # --------------------------------------------------------------------------
     print_subsection_header "2.4 Job Schedulers"
 
+    local cron_installed=0
+    if is_pkg_installed cron || is_pkg_installed cronie; then
+        cron_installed=1
+    fi
+
     # 2.4.1.1 Ensure cron daemon is enabled and active (Automated)
     if should_run_check "2.4.1.1" "L1"; then
-        if ! dpkg-query -s cron &>/dev/null && ! dpkg-query -s cronie &>/dev/null; then
+        if [[ "$cron_installed" -eq 0 ]]; then
             report_ok "2.4.1.1" "Ensure cron daemon is enabled and active" "L1" "Automated" "cron is not installed"
         else
             local cr_en cr_act
@@ -1690,37 +1819,52 @@ run_section_2() {
         fi
     fi
 
-    check_file_perms "2.4.1.2" "Ensure access to /etc/crontab is configured" "L1" \
-        "/etc/crontab" "0177" "0600" "root" "root" "1" \
-        "chmod og-rwx /etc/crontab" "chown root:root /etc/crontab"
+    if [[ "$cron_installed" -eq 0 ]]; then
+        local c_item c_id c_title
+        for c_item in \
+            "2.4.1.2|Ensure access to /etc/crontab is configured" \
+            "2.4.1.3|Ensure access to /etc/cron.hourly is configured" \
+            "2.4.1.4|Ensure access to /etc/cron.daily is configured" \
+            "2.4.1.5|Ensure access to /etc/cron.weekly is configured" \
+            "2.4.1.6|Ensure access to /etc/cron.monthly is configured" \
+            "2.4.1.7|Ensure access to /etc/cron.yearly is configured" \
+            "2.4.1.8|Ensure access to /etc/cron.d is configured"; do
+            IFS='|' read -r c_id c_title <<< "$c_item"
+            should_run_check "$c_id" "L1" && report_ok "$c_id" "$c_title" "L1" "Automated" "cron is not installed"
+        done
+    else
+        check_file_perms "2.4.1.2" "Ensure access to /etc/crontab is configured" "L1" \
+            "/etc/crontab" "0177" "0600" "root" "root" "0" \
+            "chmod og-rwx /etc/crontab" "chown root:root /etc/crontab"
 
-    check_file_perms "2.4.1.3" "Ensure access to /etc/cron.hourly is configured" "L1" \
-        "/etc/cron.hourly" "0077" "0700" "root" "root" "1" \
-        "chmod og-rwx /etc/cron.hourly" "chown root:root /etc/cron.hourly"
+        check_file_perms "2.4.1.3" "Ensure access to /etc/cron.hourly is configured" "L1" \
+            "/etc/cron.hourly" "0077" "0700" "root" "root" "0" \
+            "chmod og-rwx /etc/cron.hourly" "chown root:root /etc/cron.hourly"
 
-    check_file_perms "2.4.1.4" "Ensure access to /etc/cron.daily is configured" "L1" \
-        "/etc/cron.daily" "0077" "0700" "root" "root" "1" \
-        "chmod og-rwx /etc/cron.daily" "chown root:root /etc/cron.daily"
+        check_file_perms "2.4.1.4" "Ensure access to /etc/cron.daily is configured" "L1" \
+            "/etc/cron.daily" "0077" "0700" "root" "root" "0" \
+            "chmod og-rwx /etc/cron.daily" "chown root:root /etc/cron.daily"
 
-    check_file_perms "2.4.1.5" "Ensure access to /etc/cron.weekly is configured" "L1" \
-        "/etc/cron.weekly" "0077" "0700" "root" "root" "1" \
-        "chmod og-rwx /etc/cron.weekly" "chown root:root /etc/cron.weekly"
+        check_file_perms "2.4.1.5" "Ensure access to /etc/cron.weekly is configured" "L1" \
+            "/etc/cron.weekly" "0077" "0700" "root" "root" "0" \
+            "chmod og-rwx /etc/cron.weekly" "chown root:root /etc/cron.weekly"
 
-    check_file_perms "2.4.1.6" "Ensure access to /etc/cron.monthly is configured" "L1" \
-        "/etc/cron.monthly" "0077" "0700" "root" "root" "1" \
-        "chmod og-rwx /etc/cron.monthly" "chown root:root /etc/cron.monthly"
+        check_file_perms "2.4.1.6" "Ensure access to /etc/cron.monthly is configured" "L1" \
+            "/etc/cron.monthly" "0077" "0700" "root" "root" "0" \
+            "chmod og-rwx /etc/cron.monthly" "chown root:root /etc/cron.monthly"
 
-    check_file_perms "2.4.1.7" "Ensure access to /etc/cron.yearly is configured" "L1" \
-        "/etc/cron.yearly" "0077" "0700" "root" "root" "1" \
-        "chmod og-rwx /etc/cron.yearly" "chown root:root /etc/cron.yearly"
+        check_file_perms "2.4.1.7" "Ensure access to /etc/cron.yearly is configured" "L1" \
+            "/etc/cron.yearly" "0077" "0700" "root" "root" "1" \
+            "chmod og-rwx /etc/cron.yearly" "chown root:root /etc/cron.yearly"
 
-    check_file_perms "2.4.1.8" "Ensure access to /etc/cron.d is configured" "L1" \
-        "/etc/cron.d" "0077" "0700" "root" "root" "1" \
-        "chmod og-rwx /etc/cron.d" "chown root:root /etc/cron.d"
+        check_file_perms "2.4.1.8" "Ensure access to /etc/cron.d is configured" "L1" \
+            "/etc/cron.d" "0077" "0700" "root" "root" "0" \
+            "chmod og-rwx /etc/cron.d" "chown root:root /etc/cron.d"
+    fi
 
     # 2.4.1.9 Ensure access to crontab is configured (Automated)
     if should_run_check "2.4.1.9" "L1"; then
-        if ! dpkg-query -s cron &>/dev/null && ! dpkg-query -s cronie &>/dev/null; then
+        if [[ "$cron_installed" -eq 0 ]]; then
             report_ok "2.4.1.9" "Ensure access to crontab is configured" "L1" "Automated" "cron not installed"
         else
             local ca_issues=()
@@ -1752,7 +1896,7 @@ run_section_2() {
 
     # 2.4.2.1 Ensure access to at is configured (Automated)
     if should_run_check "2.4.2.1" "L1"; then
-        if ! dpkg-query -s at &>/dev/null; then
+        if ! is_pkg_installed at; then
             report_ok "2.4.2.1" "Ensure access to at is configured" "L1" "Automated" "at is not installed"
         else
             local at_issues=()
@@ -1814,7 +1958,11 @@ run_section_3() {
             for d in $wl_dirs; do
                 mname="$(basename "$(readlink -f "$(dirname "$d")/device/driver/module" 2>/dev/null)" 2>/dev/null || true)"
                 [[ -z "$mname" ]] && continue
-                if grep -Pq "\b${mname}\b" <<< "$LSMOD_CACHE" || ! grep -Pq "^\h*blacklist\h+${mname}\b" <<< "$SHOWCONFIG_CACHE" || ! grep -Pq "^\h*install\h+${mname}\h+/bin/(false|true)\b" <<< "$SHOWCONFIG_CACHE"; then
+                local l_loadable
+                l_loadable="$(modprobe -n -v "$mname" 2>/dev/null || true)"
+                if grep -Pq "\b${mname}\b" <<< "$LSMOD_CACHE" || \
+                   ! grep -Pq "^\h*blacklist\h+${mname}\b" <<< "$SHOWCONFIG_CACHE" || \
+                   ( ! grep -Pq "^\h*install\h+(/usr)?/bin/(false|true)\b" <<< "$l_loadable" && ! grep -Pq "^\h*install\h+${mname}\h+(/usr)?/bin/(false|true)\b" <<< "$SHOWCONFIG_CACHE" ); then
                     wl_bad+=("$mname")
                 fi
             done
@@ -1899,7 +2047,7 @@ run_section_4() {
 
     # 4.1.1 Ensure ufw is installed (Automated)
     if should_run_check "4.1.1" "L1"; then
-        if dpkg-query -s ufw &>/dev/null; then
+        if is_pkg_installed ufw; then
             report_ok "4.1.1" "Ensure ufw is installed" "L1" "Automated"
         else
             report_fail "4.1.1" "Ensure ufw is installed" "L1" "Automated" \
@@ -1908,12 +2056,15 @@ run_section_4() {
         fi
     fi
 
+    local ufw_verbose_out=""
+    command -v ufw &>/dev/null && ufw_verbose_out="$(ufw status verbose 2>/dev/null || true)"
+
     # 4.1.2 Ensure ufw service is configured (Automated)
     if should_run_check "4.1.2" "L1"; then
         local ufw_en ufw_act ufw_st
         ufw_en="$(systemctl is-enabled ufw.service 2>/dev/null || true)"
         ufw_act="$(systemctl is-active ufw.service 2>/dev/null || true)"
-        ufw_st="$(ufw status 2>/dev/null | awk '/^Status:/{print $2}' || true)"
+        ufw_st="$(awk '/^Status:/{print $2}' <<< "$ufw_verbose_out" || true)"
         if [[ "$ufw_en" == "enabled" && "$ufw_act" == "active" && "$ufw_st" == "active" ]]; then
             report_ok "4.1.2" "Ensure ufw service is configured" "L1" "Automated"
         else
@@ -1926,27 +2077,25 @@ run_section_4() {
     # 4.1.3 Ensure ufw incoming default is configured (Automated)
     if should_run_check "4.1.3" "L1"; then
         local ufw_in_def=""
-        ufw_in_def="$(ufw status verbose 2>/dev/null | awk -F',' '$1~/^Default:/ {print $1}' | grep -Po '(deny|reject)\h+\(incoming\)' || true)"
-        [[ -z "$ufw_in_def" && -f /etc/default/ufw ]] && ufw_in_def="$(grep -Pi '^\h*DEFAULT_INPUT_POLICY\h*=\h*"(DROP|REJECT)"' /etc/default/ufw 2>/dev/null || true)"
+        ufw_in_def="$(awk -F',' '$1~/^Default:/ {print $1}' <<< "$ufw_verbose_out" | grep -Po '(deny|reject)\h+\(incoming\)' || true)"
         if [[ -n "$ufw_in_def" ]]; then
-            report_ok "4.1.3" "Ensure ufw incoming default is configured" "L1" "Automated"
+            report_ok "4.1.3" "Ensure ufw incoming default is configured" "L1" "Automated" "Default: ${ufw_in_def}"
         else
             report_fail "4.1.3" "Ensure ufw incoming default is configured" "L1" "Automated" \
-                "UFW default incoming policy is not set to deny or reject" \
-                "Run: ufw default deny incoming"
+                "UFW is inactive or default incoming policy is not set to deny or reject" \
+                "Ensure UFW is active and run: ufw default deny incoming"
         fi
     fi
 
     # 4.1.4 Ensure ufw outgoing default is configured (Automated)
     if should_run_check "4.1.4" "L2"; then
         local ufw_out_def=""
-        ufw_out_def="$(ufw status verbose 2>/dev/null | awk -F',' '$1~/^Default:/ {print $2}' | grep -Po '(deny|reject)\h+\(outgoing\)' || true)"
-        [[ -z "$ufw_out_def" && -f /etc/default/ufw ]] && ufw_out_def="$(grep -Pi '^\h*DEFAULT_OUTPUT_POLICY\h*=\h*"(DROP|REJECT)"' /etc/default/ufw 2>/dev/null || true)"
+        ufw_out_def="$(awk -F',' '$1~/^Default:/ {print $2}' <<< "$ufw_verbose_out" | grep -Po '(deny|reject)\h+\(outgoing\)' || true)"
         if [[ -n "$ufw_out_def" ]]; then
-            report_ok "4.1.4" "Ensure ufw outgoing default is configured" "L2" "Automated"
+            report_ok "4.1.4" "Ensure ufw outgoing default is configured" "L2" "Automated" "Default: ${ufw_out_def}"
         else
             report_fail "4.1.4" "Ensure ufw outgoing default is configured" "L2" "Automated" \
-                "UFW default outgoing policy is not set to deny or reject" \
+                "UFW is inactive or default outgoing policy is not set to deny or reject" \
                 "Allow required outbound ports (e.g. DNS, NTP, HTTP/HTTPS) and run: ufw default deny outgoing"
         fi
     fi
@@ -1954,14 +2103,13 @@ run_section_4() {
     # 4.1.5 Ensure ufw routed default is configured (Automated)
     if should_run_check "4.1.5" "L1"; then
         local ufw_rt_def=""
-        ufw_rt_def="$(ufw status verbose 2>/dev/null | awk '/^Default:/{print}' | grep -Po '(deny|disabled)\h+\(routed\)' || true)"
-        [[ -z "$ufw_rt_def" && -f /etc/default/ufw ]] && ufw_rt_def="$(grep -Pi '^\h*DEFAULT_FORWARD_POLICY\h*=\h*"(DROP|REJECT)"' /etc/default/ufw 2>/dev/null || true)"
+        ufw_rt_def="$(awk -F',' '$1~/^Default:/ {print $3}' <<< "$ufw_verbose_out" | grep -Po '(deny|reject|disabled)\h+\(routed\)' || true)"
         if [[ -n "$ufw_rt_def" ]]; then
-            report_ok "4.1.5" "Ensure ufw routed default is configured" "L1" "Automated"
+            report_ok "4.1.5" "Ensure ufw routed default is configured" "L1" "Automated" "Default: ${ufw_rt_def}"
         else
             report_fail "4.1.5" "Ensure ufw routed default is configured" "L1" "Automated" \
-                "UFW default routed policy is not set to deny/disabled" \
-                "Run: ufw default deny routed"
+                "UFW is inactive or default routed policy is not set to disabled/deny" \
+                "Ensure UFW is active and run: ufw default deny routed"
         fi
     fi
 }
@@ -2010,9 +2158,20 @@ run_section_5() {
 
     # 5.1.2 Ensure access to SSH private host key files is configured (Automated)
     if should_run_check "5.1.2" "L1"; then
-        local bad_priv_keys=() kf
+        local bad_priv_keys=() priv_candidates=() kf
+        while IFS= read -r kf; do
+            [[ -f "$kf" ]] && priv_candidates+=("$kf")
+        done < <(awk '$1=="hostkey"{print $2}' <<< "$SSHD_T_CACHE" 2>/dev/null)
         for kf in /etc/ssh/ssh_host_*_key; do
             [[ -f "$kf" ]] || continue
+            local seen=0 c
+            for c in "${priv_candidates[@]}"; do [[ "$c" == "$kf" ]] && seen=1 && break; done
+            [[ "$seen" -eq 0 ]] && priv_candidates+=("$kf")
+        done
+        for kf in "${priv_candidates[@]}"; do
+            if command -v ssh-keygen &>/dev/null; then
+                ssh-keygen -lf "$kf" &>/dev/null || continue
+            fi
             local m u g
             read -r m u g <<< "$(stat -Lc '%#a %U %G' "$kf" 2>/dev/null)"
             if [[ $(( m & 0177 )) -gt 0 || "$u" != "root" || "$g" != "root" ]]; then
@@ -2030,9 +2189,20 @@ run_section_5() {
 
     # 5.1.3 Ensure access to SSH public host key files is configured (Automated)
     if should_run_check "5.1.3" "L1"; then
-        local bad_pub_keys=() kf
+        local bad_pub_keys=() pub_candidates=() kf
+        while IFS= read -r kf; do
+            [[ -f "$kf" ]] && pub_candidates+=("$kf")
+        done < <(awk '$1=="hostkey"{print $2".pub"}' <<< "$SSHD_T_CACHE" 2>/dev/null)
         for kf in /etc/ssh/ssh_host_*_key.pub; do
             [[ -f "$kf" ]] || continue
+            local seen=0 c
+            for c in "${pub_candidates[@]}"; do [[ "$c" == "$kf" ]] && seen=1 && break; done
+            [[ "$seen" -eq 0 ]] && pub_candidates+=("$kf")
+        done
+        for kf in "${pub_candidates[@]}"; do
+            if command -v ssh-keygen &>/dev/null; then
+                ssh-keygen -lf "$kf" &>/dev/null || continue
+            fi
             local m u g
             read -r m u g <<< "$(stat -Lc '%#a %U %G' "$kf" 2>/dev/null)"
             if [[ $(( m & 0133 )) -gt 0 || "$u" != "root" || "$g" != "root" ]]; then
@@ -2211,7 +2381,7 @@ run_section_5() {
         if should_run_check "5.1.14" "L1"; then
             local ll_val
             ll_val="$(awk '$1=="loglevel"{print $2}' <<< "$SSHD_T_CACHE" | head -n 1)"
-            if [[ "$ll_val" == "VERBOSE" || "$ll_val" == "INFO" ]]; then
+            if [[ "${ll_val^^}" == "VERBOSE" || "${ll_val^^}" == "INFO" ]]; then
                 report_ok "5.1.14" "Ensure sshd LogLevel is configured" "L1" "Automated" "LogLevel=${ll_val}"
             else
                 report_fail "5.1.14" "Ensure sshd LogLevel is configured" "L1" "Automated" \
@@ -2329,7 +2499,7 @@ run_section_5() {
         if should_run_check "5.1.23" "L1"; then
             local kex_line ssh_ver pqc_ok=0
             kex_line="$(awk '$1=="kexalgorithms"{print $2}' <<< "$SSHD_T_CACHE" | head -n 1)"
-            ssh_ver="$(ssh -V 2>&1 | grep -oP 'OpenSSH_\K[0-9]+\.[0-9]+' | head -n 1 || echo "9.6")"
+            ssh_ver="$({ "$SSHD_BIN" -V 2>&1 || ssh -V 2>&1; } | grep -oPi 'openssh_\K[0-9]+\.[0-9]+' | head -n 1 || echo "9.6")"
             if awk -v v="$ssh_ver" 'BEGIN{exit !(v+0 >= 9.9)}' 2>/dev/null; then
                 grep -Pq 'sntrup761x25519-sha512' <<< "$kex_line" && grep -Pq 'mlkem768x25519-sha256' <<< "$kex_line" && pqc_ok=1
             else
@@ -2366,8 +2536,9 @@ run_section_5() {
 
     # 5.2.1 Ensure sudo is installed (Automated)
     if should_run_check "5.2.1" "L1"; then
-        local sudo_pkg
-        sudo_pkg="$(dpkg-query -s sudo sudo-ldap 2>/dev/null | grep -P '^Package:\h+\H+' | awk '{print $2}' | tr '\n' ' ' || true)"
+        local sudo_pkg=""
+        is_pkg_installed sudo && sudo_pkg+="sudo "
+        is_pkg_installed sudo-ldap && sudo_pkg+="sudo-ldap "
         if [[ -n "$sudo_pkg" ]]; then
             report_ok "5.2.1" "Ensure sudo is installed" "L1" "Automated" "${sudo_pkg% } installed"
         else
@@ -2393,15 +2564,14 @@ run_section_5() {
 
     # 5.2.3 Ensure sudo log file exists (Automated)
     if should_run_check "5.2.3" "L1"; then
-        local sudo_logfile_cfg sudo_rsyslog_cfg
+        local sudo_logfile_cfg
         sudo_logfile_cfg="$(grep -rPsi "^\h*Defaults\h+([^#]+,\h*)?logfile\h*=\h*(\"|')?\H+(\"|')?(,\h*\H+\h*)*\h*(#.*)?$" /etc/sudoers /etc/sudoers.d/ 2>/dev/null || true)"
-        sudo_rsyslog_cfg="$(grep -RPsi 'authpriv\.\*\h+/var/log/sudo\.log' /etc/rsyslog.conf /etc/rsyslog.d/ 2>/dev/null || true)"
-        if [[ -n "$sudo_logfile_cfg" || -n "$sudo_rsyslog_cfg" ]]; then
+        if [[ -n "$sudo_logfile_cfg" ]]; then
             report_ok "5.2.3" "Ensure sudo log file exists" "L1" "Automated"
         else
             report_fail "5.2.3" "Ensure sudo log file exists" "L1" "Automated" \
-                "Dedicated sudo log file (/var/log/sudo.log) is not configured in /etc/sudoers* or /etc/rsyslog.d/" \
-                "For sudo-rs/syslog: run 'printf \"%s\n\" \"authpriv.* /var/log/sudo.log\" > /etc/rsyslog.d/30-sudo.conf && systemctl restart rsyslog'. For classic sudo: add 'Defaults logfile=\"/var/log/sudo.log\"' via visudo."
+                "Custom sudo log file (Defaults logfile=\"/var/log/sudo.log\") is not configured in /etc/sudoers or /etc/sudoers.d/*" \
+                "Use 'visudo' or 'visudo -f /etc/sudoers.d/60-cis' to add: Defaults logfile=\"/var/log/sudo.log\""
         fi
     fi
 
@@ -2434,11 +2604,11 @@ run_section_5() {
     # 5.2.6 Ensure sudo timestamp_timeout is configured (Automated)
     if should_run_check "5.2.6" "L1"; then
         local ts_vals
-        ts_vals="$(grep -rPo -- '^\h*Defaults\h+([^#\n\r]+,\h*)?timestamp_timeout\h*=\h*\K[-0-9]+' /etc/sudoers /etc/sudoers.d/ 2>/dev/null || true)"
+        ts_vals="$(grep -roP "timestamp_timeout=\K[-0-9.]+" /etc/sudoers /etc/sudoers.d/ 2>/dev/null || true)"
         if [[ -n "$ts_vals" ]]; then
             local ts_bad=0 v
             for v in $ts_vals; do
-                if [[ "$v" -lt 0 || "$v" -gt 15 ]]; then
+                if ! awk -v val="$v" 'BEGIN { exit !(val+0 >= 0 && val+0 <= 15) }' 2>/dev/null; then
                     ts_bad=1
                 fi
             done
@@ -2446,13 +2616,19 @@ run_section_5() {
                 report_ok "5.2.6" "Ensure sudo timestamp_timeout is configured" "L1" "Automated"
             else
                 report_fail "5.2.6" "Ensure sudo timestamp_timeout is configured" "L1" "Automated" \
-                    "Invalid timestamp_timeout value(s) (${ts_vals}) found (must be between 0 and 15)" \
+                    "Invalid timestamp_timeout value(s) (${ts_vals}) found in /etc/sudoers* (must be between 0 and 15 minutes)" \
                     "Use 'visudo' to set 'Defaults timestamp_timeout=15' (15 minutes or less, not -1) in /etc/sudoers."
             fi
         else
-            report_fail "5.2.6" "Ensure sudo timestamp_timeout is configured" "L1" "Automated" \
-                "timestamp_timeout is not explicitly configured in /etc/sudoers or /etc/sudoers.d/" \
-                "Use 'visudo' to add 'Defaults timestamp_timeout=15' in /etc/sudoers or /etc/sudoers.d/60-cis."
+            local sudo_def_ts
+            sudo_def_ts="$(sudo -V 2>/dev/null | grep -Psi -- 'timestamp\h+timeout\b' | grep -oP '[-0-9.]+' | head -n 1 || true)"
+            if [[ -n "$sudo_def_ts" ]] && awk -v val="$sudo_def_ts" 'BEGIN { exit !(val+0 >= 0 && val+0 <= 15) }' 2>/dev/null; then
+                report_ok "5.2.6" "Ensure sudo timestamp_timeout is configured" "L1" "Automated" "Default timestamp_timeout=${sudo_def_ts}m"
+            else
+                report_fail "5.2.6" "Ensure sudo timestamp_timeout is configured" "L1" "Automated" \
+                    "timestamp_timeout is not configured in /etc/sudoers* and sudo -V default (${sudo_def_ts:-unknown}) could not be verified <= 15m" \
+                    "Use 'visudo' to add 'Defaults timestamp_timeout=15' in /etc/sudoers or /etc/sudoers.d/60-cis."
+            fi
         fi
     fi
 
@@ -2499,7 +2675,7 @@ run_section_5() {
     for pp_item in "${pam_pkgs[@]}"; do
         IFS='|' read -r pp_id pp_title pp_pkg <<< "$pp_item"
         if should_run_check "$pp_id" "L1"; then
-            if dpkg-query -s "$pp_pkg" &>/dev/null; then
+            if is_pkg_installed "$pp_pkg"; then
                 if ! apt list --upgradable 2>/dev/null | grep -Pq "^${pp_pkg}/"; then
                     report_ok "$pp_id" "$pp_title" "L1" "Automated"
                 else
@@ -2711,8 +2887,7 @@ run_section_5() {
 
     # 5.3.3.2.8 Ensure password quality is enforced for the root user (Automated)
     if should_run_check "5.3.3.2.8" "L1"; then
-        if grep -Psiq -- '^\h*enforce_for_root\b' /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null || \
-           grep -Psiq -- '^\h*password\h+[^#\n\r]+\h+pam_pwquality\.so\h+([^#\n\r]+\h+)?enforce_for_root\b' /etc/pam.d/common-password 2>/dev/null; then
+        if grep -Psiq -- '^\h*enforce_for_root\b' /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; then
             report_ok "5.3.3.2.8" "Ensure password quality is enforced for the root user" "L1" "Automated"
         else
             report_fail "5.3.3.2.8" "Ensure password quality is enforced for the root user" "L1" "Automated" \
@@ -2838,7 +3013,7 @@ run_section_5() {
         if [[ -n "$pmin" && "$pmin" -ge 1 && -z "$bad_sh_min" ]]; then
             report_ok "5.4.1.2" "Ensure minimum password days is configured" "L2" "Manual" "PASS_MIN_DAYS=${pmin}"
         else
-            report_fail "5.4.1.2" "Ensure minimum password days is configured" "L2" "Manual" \
+            report_manual "5.4.1.2" "Ensure minimum password days is configured" "L2" "Manual" \
                 "PASS_MIN_DAYS=${pmin:-0} in /etc/login.defs (must be >= 1); users with PASS_MIN_DAYS < 1: [${bad_sh_min% }]" \
                 "Set 'PASS_MIN_DAYS 1' in /etc/login.defs and run: awk -F: '(\$2~/^\$.+\$/) {if(\$4 < 1) system(\"chage --mindays 1 \" \$1)}' /etc/shadow"
         fi
@@ -2967,6 +3142,7 @@ run_section_5() {
         local rpath path_issues=() pmask=0022
         rpath="$(sudo su - root -c env 2>/dev/null | awk -F= '$1=="PATH"{print $2}' || echo "$PATH")"
         grep -q -- "::" <<< "$rpath" && path_issues+=("Root PATH contains empty directory (::)")
+        grep -Pq -- "^\h*:" <<< "$rpath" && path_issues+=("Root PATH contains leading colon (:)")
         grep -Pq -- ":\h*$" <<< "$rpath" && path_issues+=("Root PATH contains trailing colon (:)")
         grep -Pq -- '(^\h*|:)\.(:|\h*$)' <<< "$rpath" && path_issues+=("Root PATH contains current working directory (.)")
         local a_path_loc=() pdir
@@ -3079,15 +3255,16 @@ run_section_5() {
 
     # 5.4.3.3 Ensure default user umask is configured (Automated)
     if should_run_check "5.4.3.3" "L1"; then
-        local umask_bad1 umask_bad2 umask_set
-        umask_bad1="$(grep -PHsi -- '^\h*umask\h+(?!0?[02367]7\b)' /etc/profile /etc/profile.d/*.sh /etc/bash.bashrc 2>/dev/null || true)"
-        umask_bad2="$(grep -PHsi -- '^\h*UMASK\h+(?!0?[02367]7\b)' /etc/login.defs 2>/dev/null || true)"
-        umask_set="$(grep -PHsi -- '^\h*(umask|UMASK)\h+0?[02367]7\b' /etc/profile /etc/profile.d/*.sh /etc/login.defs 2>/dev/null || true)"
-        if [[ -z "$umask_bad1" && -z "$umask_bad2" && -n "$umask_set" ]]; then
+        local umask_bad1 umask_bad2 umask_prof_ok umask_ld_ok
+        umask_bad1="$(grep -PHsi -- '^\h*umask\h+(?!(0?[0-7][2-7]7|u=[rwx]{0,3},g=([rx]{0,2}|),o=)\b)' /etc/profile /etc/profile.d/*.sh /etc/bash.bashrc 2>/dev/null || true)"
+        umask_bad2="$(grep -PHsi -- '^\h*UMASK\h+(?!0?[0-7][2-7]7\b)' /etc/login.defs 2>/dev/null || true)"
+        umask_prof_ok="$(grep -PHsi -- '^\h*umask\h+(0?[0-7][2-7]7|u=[rwx]{0,3},g=([rx]{0,2}|),o=)\b' /etc/profile.d/*.sh /etc/profile /etc/bash.bashrc 2>/dev/null || true)"
+        umask_ld_ok="$(grep -PHsi -- '^\h*UMASK\h+0?[0-7][2-7]7\b' /etc/login.defs 2>/dev/null || true)"
+        if [[ -z "$umask_bad1" && -z "$umask_bad2" && -n "$umask_prof_ok" && -n "$umask_ld_ok" ]]; then
             report_ok "5.4.3.3" "Ensure default user umask is configured" "L1" "Automated"
         else
             report_fail "5.4.3.3" "Ensure default user umask is configured" "L1" "Automated" \
-                "Permissive umask found (${umask_bad1} ${umask_bad2}) or 027 umask not configured" \
+                "Permissive umask found (${umask_bad1} ${umask_bad2}) or 027 umask not configured in both /etc/profile.d/*.sh and /etc/login.defs" \
                 "Set 'UMASK 027' in /etc/login.defs and run: printf '\n%s\n' 'umask 027' >> /etc/profile.d/60-default_umask.sh"
         fi
     fi
@@ -3130,13 +3307,35 @@ run_section_6() {
 
     # 6.1.1.1.3 Ensure journald is configured to send logs to rsyslog (Automated)
     if should_run_check "6.1.1.1.3" "L1"; then
-        local fwd_sys
-        fwd_sys="$(grep -PRsi -- '^\h*ForwardToSyslog\h*=\h*yes\b' /etc/systemd/journald.conf /etc/systemd/journald.conf.d/ 2>/dev/null || true)"
-        if [[ -n "$fwd_sys" ]]; then
-            report_ok "6.1.1.1.3" "Ensure journald is configured to send logs to rsyslog" "L1" "Automated"
+        local l_analyze_cmd fwd_val="" jf j_act r_act
+        l_analyze_cmd="$(readlink -e /bin/systemd-analyze 2>/dev/null || readlink -e /usr/bin/systemd-analyze 2>/dev/null || true)"
+        local jfiles=()
+        if [[ -n "$l_analyze_cmd" ]]; then
+            while IFS= read -r jf; do
+                jf="${jf//# /}"
+                [[ -f "$jf" ]] && jfiles+=("$jf")
+            done < <("$l_analyze_cmd" cat-config systemd/journald.conf 2>/dev/null | tac | grep -Pio '^\h*#\h*\/[^#\n\r\h]+\.conf\b')
+        fi
+        if [[ "${#jfiles[@]}" -eq 0 ]]; then
+            for jf in /etc/systemd/journald.conf.d/*.conf /etc/systemd/journald.conf; do
+                [[ -f "$jf" ]] && jfiles+=("$jf")
+            done
+        fi
+        for jf in "${jfiles[@]}"; do
+            local v
+            v="$(awk '/\[Journal\]/{a=1;next}/\[/{a=0}a' "$jf" 2>/dev/null | grep -Poi '^\h*ForwardToSyslog\h*=\h*\K\H+' | tail -n 1 || true)"
+            if [[ -n "$v" ]]; then
+                fwd_val="$v"
+                break
+            fi
+        done
+        j_act="$(systemctl is-active systemd-journald.service 2>/dev/null || true)"
+        r_act="$(systemctl is-active rsyslog.service 2>/dev/null || true)"
+        if [[ "${fwd_val,,}" == "yes" && "$j_act" == "active" && "$r_act" == "active" ]]; then
+            report_ok "6.1.1.1.3" "Ensure journald is configured to send logs to rsyslog" "L1" "Automated" "ForwardToSyslog=yes, journald & rsyslog active"
         else
             report_fail "6.1.1.1.3" "Ensure journald is configured to send logs to rsyslog" "L1" "Automated" \
-                "ForwardToSyslog=yes is not configured in /etc/systemd/journald.conf or /etc/systemd/journald.conf.d/*.conf" \
+                "ForwardToSyslog=${fwd_val:-unset} (expected: yes), systemd-journald=${j_act:-inactive}, rsyslog=${r_act:-inactive}" \
                 "Create /etc/systemd/journald.conf.d/60-journald.conf with '[Journal]' and 'ForwardToSyslog=yes', then run: systemctl reload-or-restart systemd-journald.service"
         fi
     fi
@@ -3180,22 +3379,66 @@ run_section_6() {
 
     # 6.1.1.1.6 Ensure journald Storage is configured (Automated)
     if should_run_check "6.1.1.1.6" "L1"; then
-        if grep -PRsiq -- '^\h*Storage\h*=\h*persistent\b' /etc/systemd/journald.conf /etc/systemd/journald.conf.d/ 2>/dev/null; then
-            report_ok "6.1.1.1.6" "Ensure journald Storage is configured" "L1" "Automated"
+        local l_analyze_cmd j_st_val="" jf
+        l_analyze_cmd="$(readlink -e /bin/systemd-analyze 2>/dev/null || readlink -e /usr/bin/systemd-analyze 2>/dev/null || true)"
+        local jfiles=()
+        if [[ -n "$l_analyze_cmd" ]]; then
+            while IFS= read -r jf; do
+                jf="${jf//# /}"
+                [[ -f "$jf" ]] && jfiles+=("$jf")
+            done < <("$l_analyze_cmd" cat-config systemd/journald.conf 2>/dev/null | tac | grep -Pio '^\h*#\h*\/[^#\n\r\h]+\.conf\b')
+        fi
+        if [[ "${#jfiles[@]}" -eq 0 ]]; then
+            for jf in /etc/systemd/journald.conf.d/*.conf /etc/systemd/journald.conf; do
+                [[ -f "$jf" ]] && jfiles+=("$jf")
+            done
+        fi
+        for jf in "${jfiles[@]}"; do
+            local v
+            v="$(awk '/\[Journal\]/{a=1;next}/\[/{a=0}a' "$jf" 2>/dev/null | grep -Poi '^\h*Storage\h*=\h*\K\H+' | tail -n 1 || true)"
+            if [[ -n "$v" ]]; then
+                j_st_val="$v"
+                break
+            fi
+        done
+        if [[ "${j_st_val,,}" == "persistent" ]]; then
+            report_ok "6.1.1.1.6" "Ensure journald Storage is configured" "L1" "Automated" "Storage=persistent"
         else
             report_fail "6.1.1.1.6" "Ensure journald Storage is configured" "L1" "Automated" \
-                "Storage=persistent is not configured in /etc/systemd/journald.conf or /etc/systemd/journald.conf.d/*.conf" \
+                "Storage is '${j_st_val:-not set (default auto)}' (expected: persistent)" \
                 "Add '[Journal]' and 'Storage=persistent' to /etc/systemd/journald.conf.d/60-journald.conf and run: systemctl reload-or-restart systemd-journald"
         fi
     fi
 
     # 6.1.1.1.7 Ensure journald Compress is configured (Automated)
     if should_run_check "6.1.1.1.7" "L1"; then
-        if grep -PRsiq -- '^\h*Compress\h*=\h*yes\b' /etc/systemd/journald.conf /etc/systemd/journald.conf.d/ 2>/dev/null; then
-            report_ok "6.1.1.1.7" "Ensure journald Compress is configured" "L1" "Automated"
+        local l_analyze_cmd j_cmp_val="" jf
+        l_analyze_cmd="$(readlink -e /bin/systemd-analyze 2>/dev/null || readlink -e /usr/bin/systemd-analyze 2>/dev/null || true)"
+        local jfiles=()
+        if [[ -n "$l_analyze_cmd" ]]; then
+            while IFS= read -r jf; do
+                jf="${jf//# /}"
+                [[ -f "$jf" ]] && jfiles+=("$jf")
+            done < <("$l_analyze_cmd" cat-config systemd/journald.conf 2>/dev/null | tac | grep -Pio '^\h*#\h*\/[^#\n\r\h]+\.conf\b')
+        fi
+        if [[ "${#jfiles[@]}" -eq 0 ]]; then
+            for jf in /etc/systemd/journald.conf.d/*.conf /etc/systemd/journald.conf; do
+                [[ -f "$jf" ]] && jfiles+=("$jf")
+            done
+        fi
+        for jf in "${jfiles[@]}"; do
+            local v
+            v="$(awk '/\[Journal\]/{a=1;next}/\[/{a=0}a' "$jf" 2>/dev/null | grep -Poi '^\h*Compress\h*=\h*\K\H+' | tail -n 1 || true)"
+            if [[ -n "$v" ]]; then
+                j_cmp_val="$v"
+                break
+            fi
+        done
+        if [[ "${j_cmp_val,,}" == "yes" ]]; then
+            report_ok "6.1.1.1.7" "Ensure journald Compress is configured" "L1" "Automated" "Compress=yes"
         else
             report_fail "6.1.1.1.7" "Ensure journald Compress is configured" "L1" "Automated" \
-                "Compress=yes is not explicitly configured in /etc/systemd/journald.conf or /etc/systemd/journald.conf.d/*.conf" \
+                "Compress is '${j_cmp_val:-not explicitly set}' (expected: yes)" \
                 "Add '[Journal]' and 'Compress=yes' to /etc/systemd/journald.conf.d/60-journald.conf and run: systemctl reload-or-restart systemd-journald"
         fi
     fi
@@ -3207,7 +3450,7 @@ run_section_6() {
 
     # 6.1.2.1 Ensure rsyslog is installed (Automated)
     if should_run_check "6.1.2.1" "L1"; then
-        if dpkg-query -s rsyslog &>/dev/null; then
+        if is_pkg_installed rsyslog; then
             report_ok "6.1.2.1" "Ensure rsyslog is installed" "L1" "Automated"
         else
             report_fail "6.1.2.1" "Ensure rsyslog is installed" "L1" "Automated" \
@@ -3303,7 +3546,7 @@ run_section_6() {
 
     # 6.1.2.8 Ensure rsyslog-gnutls is installed (Automated)
     if should_run_check "6.1.2.8" "L2"; then
-        if dpkg-query -s rsyslog-gnutls &>/dev/null || dpkg-query -s rsyslog-openssl &>/dev/null; then
+        if is_pkg_installed rsyslog-gnutls; then
             report_ok "6.1.2.8" "Ensure rsyslog-gnutls is installed" "L2" "Automated"
         else
             report_fail "6.1.2.8" "Ensure rsyslog-gnutls is installed" "L2" "Automated" \
@@ -3314,7 +3557,7 @@ run_section_6() {
 
     # 6.1.2.9 Ensure rsyslog forwarding uses gtls (Automated)
     if should_run_check "6.1.2.9" "L2"; then
-        if grep -Psiq -- '^[^#]*StreamDriver\s*=\s*"?(gtls|ossl)"?' /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null; then
+        if grep -Psiq -- '^[^#]*StreamDriver\s*=\s*"gtls"' /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null; then
             report_ok "6.1.2.9" "Ensure rsyslog forwarding uses gtls" "L2" "Automated"
         else
             report_fail "6.1.2.9" "Ensure rsyslog forwarding uses gtls" "L2" "Automated" \
@@ -3325,14 +3568,14 @@ run_section_6() {
 
     # 6.1.2.10 Ensure rsyslog CA certificates are configured (Manual)
     if should_run_check "6.1.2.10" "L2"; then
-        local ca_files
-        ca_files="$(grep -PEsi -- '(DefaultNetstreamDriverCAFile|StreamDriver\.CAFile)\s*=' /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null || true)"
-        if [[ -n "$ca_files" ]]; then
-            report_ok "6.1.2.10" "Ensure rsyslog CA certificates are configured" "L2" "Manual" "${ca_files}"
+        local ca_file
+        ca_file="$(grep -Pso '(?<=DefaultNetstreamDriverCAFile=")[^"]+' /etc/rsyslog.conf /etc/rsyslog.d/* 2>/dev/null | head -n 1 || true)"
+        if [[ -n "$ca_file" && -r "$ca_file" ]] && openssl verify "$ca_file" &>/dev/null; then
+            report_ok "6.1.2.10" "Ensure rsyslog CA certificates are configured" "L2" "Manual" "DefaultNetstreamDriverCAFile=${ca_file} (verified)"
         else
             report_manual "6.1.2.10" "Ensure rsyslog CA certificates are configured" "L2" "Manual" \
-                "DefaultNetstreamDriverCAFile / StreamDriver.CAFile is not configured in rsyslog" \
-                "Add 'global(DefaultNetstreamDriverCAFile=\"/etc/ssl/certs/ca-certificates.crt\")' to /etc/rsyslog.d/40-forward.conf and run: systemctl restart rsyslog"
+                "DefaultNetstreamDriverCAFile is '${ca_file:-not configured}' or certificate file is missing/unverified" \
+                "Add 'DefaultNetstreamDriverCAFile=\"/etc/ssl/certs/ca-certificates.crt\"' to /etc/rsyslog.d/40-forward.conf, verify with 'openssl verify <ca_file>', and run: systemctl restart rsyslog"
         fi
     fi
 
@@ -3393,7 +3636,7 @@ run_section_6() {
 
     # 6.2.1.1 Ensure auditd packages are installed (Automated)
     if should_run_check "6.2.1.1" "L2"; then
-        if dpkg-query -s auditd &>/dev/null && dpkg-query -s audispd-plugins &>/dev/null; then
+        if is_pkg_installed auditd && is_pkg_installed audispd-plugins; then
             report_ok "6.2.1.1" "Ensure auditd packages are installed" "L2" "Automated"
         else
             report_fail "6.2.1.1" "Ensure auditd packages are installed" "L2" "Automated" \
@@ -3539,49 +3782,67 @@ run_section_6() {
     check_audit_rule_multi "6.2.3.1" "Ensure changes to system administration scope (sudoers) is collected" \
         '-w /etc/sudoers -p wa -k scope && -w /etc/sudoers.d -p wa -k scope' \
         '/etc/audit/rules.d/50-scope.rules' \
-        '/etc/sudoers\b' '/etc/sudoers\.d\b'
+        '^\h*-w\h+/etc/sudoers\h+-p\h+wa\b' '^\h*-w\h+/etc/sudoers\.d/?\h+-p\h+wa\b'
 
     # 6.2.3.2 Ensure actions as another user are always logged
     check_audit_rule_multi "6.2.3.2" "Ensure actions as another user are always logged" \
         '-a always,exit -F arch=b64 -C euid!=uid -F auid!=unset -S execve -k user_emulation (and arch=b32)' \
         '/etc/audit/rules.d/50-user_emulation.rules' \
-        'arch=b64.*execve' 'arch=b32.*execve'
+        '^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\b(euid!=uid|uid!=euid)\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bexecve\b)' \
+        '^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\b(euid!=uid|uid!=euid)\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bexecve\b)'
 
     # 6.2.3.3 Ensure events that modify the sudo log file are collected
-    check_audit_rule_multi "6.2.3.3" "Ensure events that modify the sudo log file are collected" \
-        '-w /var/log/sudo.log -p wa -k sudo_log_file' \
-        '/etc/audit/rules.d/50-sudo.rules' \
-        'sudo\.log'
+    if should_run_check "6.2.3.3" "L2"; then
+        local sudo_lf
+        sudo_lf="$(grep -rPo "^\h*Defaults\h+([^#]+,\h*)?logfile\h*=\h*[\"']?\K[^\"',\s#]+" /etc/sudoers /etc/sudoers.d/ 2>/dev/null | tail -n 1 || true)"
+        if [[ -z "$sudo_lf" ]]; then
+            report_fail "6.2.3.3" "Ensure events that modify the sudo log file are collected" "L2" "Automated" \
+                "sudo logfile is not configured in /etc/sudoers* (prerequisite for auditing sudo.log)" \
+                "Configure 'Defaults logfile=\"/var/log/sudo.log\"' in /etc/sudoers.d/60-cis, add '-w /var/log/sudo.log -p wa -k sudo_log_file' to /etc/audit/rules.d/50-sudo.rules, and run: augenrules --load"
+        else
+            check_audit_rule_multi "6.2.3.3" "Ensure events that modify the sudo log file are collected" \
+                "-w ${sudo_lf} -p wa -k sudo_log_file" \
+                '/etc/audit/rules.d/50-sudo.rules' \
+                "^\h*-w\h+${sudo_lf//./\.}\h+-p\h+wa\b"
+        fi
+    fi
 
     # 6.2.3.4 Ensure events that modify date and time information are collected
     check_audit_rule_multi "6.2.3.4" "Ensure events that modify date and time information are collected" \
         '-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time-change (and arch=b32) && -w /etc/localtime -p wa -k time-change' \
         '/etc/audit/rules.d/50-time-change.rules' \
-        'adjtimex' 'settimeofday' 'clock_settime' '/etc/localtime'
+        '^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\badjtimex\b)' \
+        '^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bsettimeofday\b)' \
+        '^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bclock_settime\b)' \
+        '^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\badjtimex\b)' \
+        '^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bsettimeofday\b)' \
+        '^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bclock_settime\b)' \
+        '^\h*-w\h+/etc/localtime\h+-p\h+wa\b'
 
     # 6.2.3.5 Ensure events that modify sethostname and setdomainname are collected
     check_audit_rule_multi "6.2.3.5" "Ensure events that modify sethostname and setdomainname are collected" \
         '-a always,exit -F arch=b64 -S sethostname,setdomainname -k system-locale (and arch=b32)' \
         '/etc/audit/rules.d/50-system_locale.rules' \
-        'sethostname' 'setdomainname'
+        '^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bsethostname\b)(?=.*\bsetdomainname\b)' \
+        '^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bsethostname\b)(?=.*\bsetdomainname\b)'
 
     # 6.2.3.6 Ensure events that modify /etc/issue and /etc/issue.net are collected
     check_audit_rule_multi "6.2.3.6" "Ensure events that modify /etc/issue and /etc/issue.net are collected" \
         '-w /etc/issue -p wa -k system-locale && -w /etc/issue.net -p wa -k system-locale' \
         '/etc/audit/rules.d/50-system_locale.rules' \
-        '/etc/issue\b' '/etc/issue\.net\b'
+        '^\h*-w\h+/etc/issue\h+-p\h+wa\b' '^\h*-w\h+/etc/issue\.net\h+-p\h+wa\b'
 
     # 6.2.3.7 Ensure events that modify /etc/hosts and /etc/hostname are collected
     check_audit_rule_multi "6.2.3.7" "Ensure events that modify /etc/hosts and /etc/hostname are collected" \
         '-w /etc/hosts -p wa -k system-locale && -w /etc/hostname -p wa -k system-locale' \
         '/etc/audit/rules.d/50-system_locale.rules' \
-        '/etc/hosts\b' '/etc/hostname\b'
+        '^\h*-w\h+/etc/hosts\h+-p\h+wa\b' '^\h*-w\h+/etc/hostname\h+-p\h+wa\b'
 
     # 6.2.3.8 Ensure events that modify /etc/network and /etc/networks are collected
     check_audit_rule_multi "6.2.3.8" "Ensure events that modify /etc/network and /etc/networks are collected" \
         '-w /etc/networks -p wa -k system-locale && -w /etc/network/ -p wa -k system-locale' \
         '/etc/audit/rules.d/50-system_locale.rules' \
-        '/etc/networks\b' '/etc/network\b'
+        '^\h*-w\h+/etc/networks\h+-p\h+wa\b' '^\h*-w\h+/etc/network/?\h+-p\h+wa\b'
 
     # 6.2.3.9 Ensure events that modify /etc/netplan are collected
     if should_run_check "6.2.3.9" "L2"; then
@@ -3591,7 +3852,7 @@ run_section_6() {
             check_audit_rule_multi "6.2.3.9" "Ensure events that modify /etc/netplan are collected" \
                 '-w /etc/netplan/ -p wa -k system-locale' \
                 '/etc/audit/rules.d/50-system_locale.rules' \
-                '/etc/netplan'
+                '^\h*-w\h+/etc/netplan/?\h+-p\h+wa\b'
         fi
     fi
 
@@ -3603,7 +3864,7 @@ run_section_6() {
                 [[ -z "$pbin" ]] && continue
                 grep -qrF "$pbin" /etc/audit/rules.d/ 2>/dev/null || priv_missing_disk+=("$pbin")
                 grep -qF "$pbin" <<< "$AUDITCTL_L_CACHE" || priv_missing_run+=("$pbin")
-            done < <(find "$part" -xdev -perm /6000 -type f 2>/dev/null | head -n 30)
+            done < <(find "$part" -xdev -perm /6000 -type f 2>/dev/null)
         done
         if [[ "${#priv_missing_disk[@]}" -eq 0 && "${#priv_missing_run[@]}" -eq 0 ]]; then
             report_ok "6.2.3.10" "Ensure use of privileged commands are collected" "L2" "Automated"
@@ -3618,112 +3879,123 @@ run_section_6() {
     check_audit_rule_multi "6.2.3.11" "Ensure events that modify /etc/group information are collected" \
         '-w /etc/group -p wa -k identity' \
         '/etc/audit/rules.d/50-identity.rules' \
-        '/etc/group\b'
+        '^\h*-w\h+/etc/group\h+-p\h+wa\b'
 
     # 6.2.3.12 Ensure events that modify /etc/passwd information are collected
     check_audit_rule_multi "6.2.3.12" "Ensure events that modify /etc/passwd information are collected" \
         '-w /etc/passwd -p wa -k identity' \
         '/etc/audit/rules.d/50-identity.rules' \
-        '/etc/passwd\b'
+        '^\h*-w\h+/etc/passwd\h+-p\h+wa\b'
 
     # 6.2.3.13 Ensure events that modify /etc/shadow and /etc/gshadow are collected
     check_audit_rule_multi "6.2.3.13" "Ensure events that modify /etc/shadow and /etc/gshadow are collected" \
         '-w /etc/gshadow -p wa -k identity && -w /etc/shadow -p wa -k identity' \
         '/etc/audit/rules.d/50-identity.rules' \
-        '/etc/shadow\b' '/etc/gshadow\b'
+        '^\h*-w\h+/etc/shadow\h+-p\h+wa\b' '^\h*-w\h+/etc/gshadow\h+-p\h+wa\b'
 
     # 6.2.3.14 Ensure events that modify /etc/security/opasswd are collected
     check_audit_rule_multi "6.2.3.14" "Ensure events that modify /etc/security/opasswd are collected" \
         '-w /etc/security/opasswd -p wa -k identity' \
         '/etc/audit/rules.d/50-identity.rules' \
-        '/etc/security/opasswd\b'
+        '^\h*-w\h+/etc/security/opasswd\h+-p\h+wa\b'
 
     # 6.2.3.15 Ensure events that modify /etc/nsswitch.conf file are collected
     check_audit_rule_multi "6.2.3.15" "Ensure events that modify /etc/nsswitch.conf file are collected" \
         '-w /etc/nsswitch.conf -p wa -k identity' \
         '/etc/audit/rules.d/50-identity.rules' \
-        '/etc/nsswitch\.conf\b'
+        '^\h*-w\h+/etc/nsswitch\.conf\h+-p\h+wa\b'
 
     # 6.2.3.16 Ensure events that modify /etc/pam.conf and /etc/pam.d/ information are collected
     check_audit_rule_multi "6.2.3.16" "Ensure events that modify /etc/pam.conf and /etc/pam.d/ information are collected" \
         '-w /etc/pam.conf -p wa -k identity && -w /etc/pam.d -p wa -k identity' \
         '/etc/audit/rules.d/50-identity.rules' \
-        '/etc/pam\.conf\b' '/etc/pam\.d\b'
+        '^\h*-w\h+/etc/pam\.conf\h+-p\h+wa\b' '^\h*-w\h+/etc/pam\.d/?\h+-p\h+wa\b'
 
     # 6.2.3.17 Ensure unsuccessful file access attempts are collected
     check_audit_rule_multi "6.2.3.17" "Ensure unsuccessful file access attempts are collected" \
         "-a always,exit -F arch=b64 -S creat,open,openat,truncate,ftruncate -F exit=-EACCES -F auid>=${UID_MIN_VAL} -F auid!=unset -k access (and -F exit=-EPERM, plus b32)" \
         '/etc/audit/rules.d/50-access.rules' \
-        'exit=-EACCES' 'exit=-EPERM' 'creat' 'open' 'openat' 'truncate' 'ftruncate'
+        "^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bexit=-EACCES\b)(?=.*\bcreat\b)(?=.*\bopen\b)(?=.*\bopenat\b)(?=.*\btruncate\b)(?=.*\bftruncate\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bexit=-EPERM\b)(?=.*\bcreat\b)(?=.*\bopen\b)(?=.*\bopenat\b)(?=.*\btruncate\b)(?=.*\bftruncate\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bexit=-EACCES\b)(?=.*\bcreat\b)(?=.*\bopen\b)(?=.*\bopenat\b)(?=.*\btruncate\b)(?=.*\bftruncate\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bexit=-EPERM\b)(?=.*\bcreat\b)(?=.*\bopen\b)(?=.*\bopenat\b)(?=.*\btruncate\b)(?=.*\bftruncate\b)"
 
     # 6.2.3.18 Ensure discretionary access control permission modification events are collected
     check_audit_rule_multi "6.2.3.18" "Ensure discretionary access control permission modification events are collected" \
         "-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F auid>=${UID_MIN_VAL} -F auid!=unset -F key=perm_mod && -S chown,fchown,lchown,fchownat && -S setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr (and arch=b32)" \
         '/etc/audit/rules.d/50-perm_mod.rules' \
-        '\bchmod\b' '\bfchmod\b' '\bfchmodat\b' '\bchown\b' '\bfchown\b' '\blchown\b' '\bfchownat\b' '\bsetxattr\b' '\blsetxattr\b' '\bfsetxattr\b' '\bremovexattr\b' '\blremovexattr\b' '\bfremovexattr\b'
+        "^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bchmod\b)(?=.*\bfchmod\b)(?=.*\bfchmodat\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bchmod\b)(?=.*\bfchmod\b)(?=.*\bfchmodat\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bchown\b)(?=.*\bfchown\b)(?=.*\blchown\b)(?=.*\bfchownat\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bchown\b)(?=.*\bfchown\b)(?=.*\blchown\b)(?=.*\bfchownat\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bsetxattr\b)(?=.*\blsetxattr\b)(?=.*\bfsetxattr\b)(?=.*\bremovexattr\b)(?=.*\blremovexattr\b)(?=.*\bfremovexattr\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bsetxattr\b)(?=.*\blsetxattr\b)(?=.*\bfsetxattr\b)(?=.*\bremovexattr\b)(?=.*\blremovexattr\b)(?=.*\bfremovexattr\b)"
 
     # 6.2.3.19 Ensure successful file system mounts are collected
     check_audit_rule_multi "6.2.3.19" "Ensure successful file system mounts are collected" \
         "-a always,exit -F arch=b64 -S mount -F auid>=${UID_MIN_VAL} -F auid!=unset -k mounts (and arch=b32)" \
         '/etc/audit/rules.d/50-mounts.rules' \
-        'arch=b64.*-S mount\b' 'arch=b32.*-S mount\b'
+        "^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bmount\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bmount\b)"
 
     # 6.2.3.20 Ensure session initiation information is collected
     check_audit_rule_multi "6.2.3.20" "Ensure session initiation information is collected" \
         '-w /var/run/utmp -p wa -k session && -w /var/log/wtmp -p wa -k session && -w /var/log/btmp -p wa -k session' \
         '/etc/audit/rules.d/50-session.rules' \
-        '/var/run/utmp\b' '/var/log/wtmp\b' '/var/log/btmp\b'
+        '^\h*-w\h+/var/run/utmp\h+-p\h+wa\b' '^\h*-w\h+/var/log/wtmp\h+-p\h+wa\b' '^\h*-w\h+/var/log/btmp\h+-p\h+wa\b'
 
     # 6.2.3.21 Ensure login and logout events are collected
     check_audit_rule_multi "6.2.3.21" "Ensure login and logout events are collected" \
         '-w /var/log/lastlog -p wa -k logins && -w /var/run/faillock -p wa -k logins' \
         '/etc/audit/rules.d/50-login.rules' \
-        '/var/log/lastlog\b' '/var/run/faillock\b'
+        '^\h*-w\h+/var/log/lastlog\h+-p\h+wa\b' '^\h*-w\h+/var/run/faillock/?\h+-p\h+wa\b'
 
     # 6.2.3.22 Ensure file deletion events by users are collected
     check_audit_rule_multi "6.2.3.22" "Ensure file deletion events by users are collected" \
         "-a always,exit -F arch=b64 -S rename,unlink,unlinkat,renameat -F auid>=${UID_MIN_VAL} -F auid!=unset -F key=delete (and arch=b32)" \
         '/etc/audit/rules.d/50-delete.rules' \
-        '\bunlink\b' '\bunlinkat\b' '\brename\b' '\brenameat\b'
+        "^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bunlink\b)(?=.*\bunlinkat\b)(?=.*\brename\b)(?=.*\brenameat\b)" \
+        "^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\bunlink\b)(?=.*\bunlinkat\b)(?=.*\brename\b)(?=.*\brenameat\b)"
 
     # 6.2.3.23 Ensure events that modify the system's Mandatory Access Controls are collected
     check_audit_rule_multi "6.2.3.23" "Ensure events that modify the system's Mandatory Access Controls are collected" \
         '-w /etc/apparmor/ -p wa -k MAC-policy && -w /etc/apparmor.d/ -p wa -k MAC-policy' \
         '/etc/audit/rules.d/50-MAC-policy.rules' \
-        '/etc/apparmor\b' '/etc/apparmor\.d\b'
+        '^\h*-w\h+/etc/apparmor/?\h+-p\h+wa\b' '^\h*-w\h+/etc/apparmor\.d/?\h+-p\h+wa\b'
 
     # 6.2.3.24 Ensure successful and unsuccessful attempts to use the chcon command are collected
     check_audit_rule_multi "6.2.3.24" "Ensure successful and unsuccessful attempts to use the chcon command are collected" \
         "-a always,exit -F path=/usr/bin/chcon -F perm=x -F auid>=${UID_MIN_VAL} -F auid!=unset -k perm_chng" \
         '/etc/audit/rules.d/50-perm_chng.rules' \
-        '/usr/bin/chcon\b'
+        "^\h*-a\h+always,exit(?=.*\bpath=/usr/bin/chcon\b)(?=.*\bperm=x\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)"
 
     # 6.2.3.25 Ensure successful and unsuccessful attempts to use the setfacl command are collected
     check_audit_rule_multi "6.2.3.25" "Ensure successful and unsuccessful attempts to use the setfacl command are collected" \
         "-a always,exit -F path=/usr/bin/setfacl -F perm=x -F auid>=${UID_MIN_VAL} -F auid!=unset -k perm_chng" \
         '/etc/audit/rules.d/50-perm_chng.rules' \
-        '/usr/bin/setfacl\b'
+        "^\h*-a\h+always,exit(?=.*\bpath=/usr/bin/setfacl\b)(?=.*\bperm=x\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)"
 
     # 6.2.3.26 Ensure successful and unsuccessful attempts to use the chacl command are collected
     check_audit_rule_multi "6.2.3.26" "Ensure successful and unsuccessful attempts to use the chacl command are collected" \
         "-a always,exit -F path=/usr/bin/chacl -F perm=x -F auid>=${UID_MIN_VAL} -F auid!=unset -k perm_chng" \
         '/etc/audit/rules.d/50-perm_chng.rules' \
-        '/usr/bin/chacl\b'
+        "^\h*-a\h+always,exit(?=.*\bpath=/usr/bin/chacl\b)(?=.*\bperm=x\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)"
 
     # 6.2.3.27 Ensure successful and unsuccessful attempts to use the usermod command are collected
     check_audit_rule_multi "6.2.3.27" "Ensure successful and unsuccessful attempts to use the usermod command are collected" \
         "-a always,exit -F path=/usr/sbin/usermod -F perm=x -F auid>=${UID_MIN_VAL} -F auid!=unset -k usermod" \
         '/etc/audit/rules.d/50-usermod.rules' \
-        '/usr/sbin/usermod\b'
+        "^\h*-a\h+always,exit(?=.*\bpath=/usr/sbin/usermod\b)(?=.*\bperm=x\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)"
 
     # 6.2.3.28 Ensure kernel module loading unloading and modification is collected
     if should_run_check "6.2.3.28" "L2"; then
-        local kmod_symlinks_bad=() ksym
-        for ksym in /sbin/lsmod /sbin/rmmod /sbin/insmod /sbin/modinfo /sbin/modprobe /sbin/depmod; do
+        local kmod_symlinks_bad=() ksym kmod_target
+        kmod_target="$(readlink -f /bin/kmod 2>/dev/null || readlink -f /usr/bin/kmod 2>/dev/null || true)"
+        for ksym in /usr/sbin/lsmod /usr/sbin/rmmod /usr/sbin/insmod /usr/sbin/modinfo /usr/sbin/modprobe /usr/sbin/depmod; do
             [[ -e "$ksym" ]] || continue
             local target
             target="$(readlink -f "$ksym" 2>/dev/null || true)"
-            [[ "$target" != "/bin/kmod" && "$target" != "/usr/bin/kmod" ]] && kmod_symlinks_bad+=("$ksym -> $target")
+            [[ "$target" != "$kmod_target" ]] && kmod_symlinks_bad+=("$ksym -> $target")
         done
         if [[ "${#kmod_symlinks_bad[@]}" -gt 0 ]]; then
             report_fail "6.2.3.28" "Ensure kernel module loading unloading and modification is collected" "L2" "Automated" \
@@ -3731,9 +4003,11 @@ run_section_6() {
                 "Verify kmod symlinks and add kernel_modules audit rules to /etc/audit/rules.d/50-kernel_modules.rules."
         else
             check_audit_rule_multi "6.2.3.28" "Ensure kernel module loading unloading and modification is collected" \
-                "-a always,exit -F arch=b64 -S init_module,finit_module,delete_module,create_module,query_module -F auid>=${UID_MIN_VAL} -F auid!=unset -k kernel_modules && -a always,exit -F path=/usr/bin/kmod -F perm=x -F auid>=${UID_MIN_VAL} -F auid!=unset -k kernel_modules" \
+                "-a always,exit -F arch=b64 -S init_module,finit_module,delete_module,create_module,query_module -F auid>=${UID_MIN_VAL} -F auid!=unset -k kernel_modules (and arch=b32) && -a always,exit -F path=/usr/bin/kmod -F perm=x -F auid>=${UID_MIN_VAL} -F auid!=unset -k kernel_modules" \
                 '/etc/audit/rules.d/50-kernel_modules.rules' \
-                '\binit_module\b' '\bfinit_module\b' '\bdelete_module\b' '(/usr)?/bin/kmod\b'
+                "^\h*-a\h+always,exit(?=.*\barch=b64\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\binit_module\b)(?=.*\bfinit_module\b)(?=.*\bdelete_module\b)(?=.*\bcreate_module\b)(?=.*\bquery_module\b)" \
+                "^\h*-a\h+always,exit(?=.*\barch=b32\b)(?=.*\bauid!=(unset|-1|4294967295)\b)(?=.*\binit_module\b)(?=.*\bfinit_module\b)(?=.*\bdelete_module\b)(?=.*\bcreate_module\b)(?=.*\bquery_module\b)" \
+                "^\h*-a\h+always,exit(?=.*\bpath=(/usr)?/bin/kmod\b)(?=.*\bperm=x\b)(?=.*\bauid>=${UID_MIN_VAL}\b)(?=.*\bauid!=(unset|-1|4294967295)\b)"
         fi
     fi
 
@@ -3766,7 +4040,7 @@ run_section_6() {
     # --------------------------------------------------------------------------
     print_subsection_header "6.2.4 Configure auditd File Access"
 
-    local audit_log_dir="/var/log/audit"
+    local audit_log_dir=""
     if [[ -f /etc/audit/auditd.conf ]]; then
         local cfg_lf
         cfg_lf="$(awk -F= '/^\s*log_file\s*/{print $2}' /etc/audit/auditd.conf 2>/dev/null | xargs || true)"
@@ -3774,10 +4048,23 @@ run_section_6() {
     fi
 
     # 6.2.4.1 Ensure the audit log file directory mode is configured (Automated)
-    check_file_perms "6.2.4.1" "Ensure the audit log file directory mode is configured" "L2" \
-        "$audit_log_dir" "0027" "0750" "root" "root|adm" "0" \
-        "chmod g-w,o-rwx ${audit_log_dir}" "chown root:adm ${audit_log_dir}"
-
+    if should_run_check "6.2.4.1" "L2"; then
+        if [[ ! -e /etc/audit/auditd.conf || -z "$audit_log_dir" || ! -d "$audit_log_dir" ]]; then
+            report_fail "6.2.4.1" "Ensure the audit log file directory mode is configured" "L2" "Automated" \
+                "/etc/audit/auditd.conf missing or audit log directory '${audit_log_dir:-unset}' does not exist" \
+                "Install auditd, configure log_file in /etc/audit/auditd.conf, and run: chmod g-w,o-rwx ${audit_log_dir:-/var/log/audit}"
+        else
+            local al_dir_mode
+            al_dir_mode="$(stat -Lc '%#a' "$audit_log_dir" 2>/dev/null || echo 0777)"
+            if [[ $(( al_dir_mode & 0027 )) -eq 0 ]]; then
+                report_ok "6.2.4.1" "Ensure the audit log file directory mode is configured" "L2" "Automated" "${audit_log_dir} (${al_dir_mode})"
+            else
+                report_fail "6.2.4.1" "Ensure the audit log file directory mode is configured" "L2" "Automated" \
+                    "Directory '${audit_log_dir}' is mode ${al_dir_mode} (should be 0750 or more restrictive)" \
+                    "Run: chmod g-w,o-rwx ${audit_log_dir}"
+            fi
+        fi
+    fi
     # 6.2.4.2 Ensure audit log files mode is configured (Automated)
     if should_run_check "6.2.4.2" "L2"; then
         if [[ ! -d "$audit_log_dir" ]]; then
@@ -3818,10 +4105,11 @@ run_section_6() {
 
     # 6.2.4.4 Ensure audit log files group owner is configured (Automated)
     if should_run_check "6.2.4.4" "L2"; then
-        local lg_cfg bad_alg=""
+        local lg_cfg lg_bad bad_alg=""
         lg_cfg="$(grep -Piws -- '^\h*log_group\h*=\h*(adm|root)\b' /etc/audit/auditd.conf 2>/dev/null || true)"
-        [[ -d "$audit_log_dir" ]] && bad_alg="$(find -L "$audit_log_dir" -not -path "${audit_log_dir}/lost+found" -type f \( ! -group root -a ! -group adm \) 2>/dev/null | tr '\n' ' ' || true)"
-        if [[ -n "$lg_cfg" && -z "$bad_alg" ]]; then
+        lg_bad="$(grep -Piws -- '^\h*log_group\h*=\h*\H+\b' /etc/audit/auditd.conf 2>/dev/null | grep -Pvi -- '(adm|root)' || true)"
+        [[ -n "$audit_log_dir" && -d "$audit_log_dir" ]] && bad_alg="$(find -L "$audit_log_dir" -maxdepth 1 -not -path "${audit_log_dir}/lost+found" -type f \( ! -group root -a ! -group adm \) 2>/dev/null | tr '\n' ' ' || true)"
+        if [[ -n "$lg_cfg" && -z "$lg_bad" && -n "$audit_log_dir" && -d "$audit_log_dir" && -z "$bad_alg" ]]; then
             report_ok "6.2.4.4" "Ensure audit log files group owner is configured" "L2" "Automated"
         else
             report_fail "6.2.4.4" "Ensure audit log files group owner is configured" "L2" "Automated" \
@@ -3933,7 +4221,7 @@ run_section_6() {
 
     # 6.3.1 Ensure AIDE is installed (Automated)
     if should_run_check "6.3.1" "L1"; then
-        if dpkg-query -s aide &>/dev/null && dpkg-query -s aide-common &>/dev/null; then
+        if is_pkg_installed aide && is_pkg_installed aide-common; then
             report_ok "6.3.1" "Ensure AIDE is installed" "L1" "Automated"
         else
             report_fail "6.3.1" "Ensure AIDE is installed" "L1" "Automated" \
@@ -3959,18 +4247,33 @@ run_section_6() {
 
     # 6.3.3 Ensure cryptographic mechanisms are used to protect the integrity of audit tools (Automated)
     if should_run_check "6.3.3" "L2"; then
-        local aide_missing_tools=() at_name
+        local aide_missing_tools=() l_tool_dir l_aide_cmd a_aide_conf=() at_name
+        l_tool_dir="$(readlink -f /sbin 2>/dev/null || echo /usr/sbin)"
+        l_aide_cmd="$(command -v aide 2>/dev/null || whereis aide 2>/dev/null | awk '{print $2}' || true)"
+        mapfile -t a_aide_conf < <(find -L /etc -type f -name 'aide.conf' 2>/dev/null)
         for at_name in auditctl auditd ausearch aureport autrace augenrules; do
-            if ! grep -PRsq -- "\b${at_name}\b.*p\+i\+n\+u\+g\+s\+b\+acl\+xattrs\+sha512" /etc/aide/ 2>/dev/null; then
-                aide_missing_tools+=("$at_name")
+            [[ -f "$l_tool_dir/$at_name" || -f "/sbin/$at_name" ]] || continue
+            local l_out="" item missing_opt=0
+            if [[ -n "$l_aide_cmd" && -x "$l_aide_cmd" && "${#a_aide_conf[@]}" -gt 0 ]]; then
+                l_out="$("$l_aide_cmd" --config "${a_aide_conf[0]}" -p "f:${l_tool_dir}/${at_name}" 2>/dev/null || true)"
             fi
+            if [[ -z "$l_out" ]]; then
+                l_out="$(grep -PRhs -- "^\h*(/usr)?/sbin/${at_name}\b" /etc/aide/ 2>/dev/null || true)"
+            fi
+            for item in p i n u g s b acl xattrs sha512; do
+                if ! grep -Psiq -- "(\h+|\+)${item}(\h+|\+|$)" <<< "$l_out"; then
+                    missing_opt=1
+                    break
+                fi
+            done
+            [[ "$missing_opt" -eq 1 ]] && aide_missing_tools+=("$at_name")
         done
-        if [[ "${#aide_missing_tools[@]}" -eq 0 ]]; then
+        if [[ -n "$l_aide_cmd" && "${#aide_missing_tools[@]}" -eq 0 ]]; then
             report_ok "6.3.3" "Ensure cryptographic mechanisms are used to protect the integrity of audit tools" "L2" "Automated"
         else
             report_fail "6.3.3" "Ensure cryptographic mechanisms are used to protect the integrity of audit tools" "L2" "Automated" \
-                "AIDE configuration missing p+i+n+u+g+s+b+acl+xattrs+sha512 rules for: [${aide_missing_tools[*]}]" \
-                "Add '<PATH>/{auditctl,auditd,ausearch,aureport,autrace,augenrules} p+i+n+u+g+s+b+acl+xattrs+sha512' to /etc/aide/aide.conf."
+                "AIDE not installed or configuration missing p+i+n+u+g+s+b+acl+xattrs+sha512 rules for: [${aide_missing_tools[*]:-all audit tools}]" \
+                "Add '/usr/sbin/{auditctl,auditd,ausearch,aureport,autrace,augenrules} p+i+n+u+g+s+b+acl+xattrs+sha512' to /etc/aide/aide.conf."
         fi
     fi
 }
@@ -4074,8 +4377,8 @@ run_section_7() {
         \( \
             \( -type f -perm -0002 -printf 'WWF\t%p\n' \) , \
             \( -type d -perm -0002 ! -perm -1000 -printf 'WWD\t%p\n' \) , \
-            \( ! -uid 0 -nouser -printf 'NOUSER\t%p\n' \) , \
-            \( ! -gid 0 -nogroup -printf 'NOGROUP\t%p\n' \) , \
+            \( \( -type f -o -type d \) ! -uid 0 -nouser -printf 'NOUSER\t%p\n' \) , \
+            \( \( -type f -o -type d \) ! -gid 0 -nogroup -printf 'NOGROUP\t%p\n' \) , \
             \( -type f -perm -4000 -printf 'SUID\t%p\n' \) , \
             \( -type f -perm -2000 -printf 'SGID\t%p\n' \) \
         \) 2>/dev/null | awk -F'\t' '
@@ -4187,17 +4490,15 @@ run_section_7() {
     fi
 
     # 7.2.5 Ensure no duplicate UIDs exist (Automated)
-    if should_run_check "5" "L1" || should_run_check "7.2.5" "L1"; then
-        if should_run_check "7.2.5" "L1"; then
-            local dup_uids
-            dup_uids="$(cut -f3 -d: /etc/passwd 2>/dev/null | sort -n | uniq -d | tr '\n' ' ' || true)"
-            if [[ -z "$dup_uids" ]]; then
-                report_ok "7.2.5" "Ensure no duplicate UIDs exist" "L1" "Automated"
-            else
-                report_fail "7.2.5" "Ensure no duplicate UIDs exist" "L1" "Automated" \
-                    "Duplicate UID(s) found in /etc/passwd: [${dup_uids% }]" \
-                    "Assign unique UIDs to affected users ('usermod -u <new_uid> <user>')."
-            fi
+    if should_run_check "7.2.5" "L1"; then
+        local dup_uids
+        dup_uids="$(cut -f3 -d: /etc/passwd 2>/dev/null | sort -n | uniq -d | tr '\n' ' ' || true)"
+        if [[ -z "$dup_uids" ]]; then
+            report_ok "7.2.5" "Ensure no duplicate UIDs exist" "L1" "Automated"
+        else
+            report_fail "7.2.5" "Ensure no duplicate UIDs exist" "L1" "Automated" \
+                "Duplicate UID(s) found in /etc/passwd: [${dup_uids% }]" \
+                "Assign unique UIDs to affected users ('usermod -u <new_uid> <user>')."
         fi
     fi
 
@@ -4269,7 +4570,7 @@ run_section_7() {
 
     # 7.2.10 Ensure local interactive user dot files access is configured (Automated)
     if should_run_check "7.2.10" "L1"; then
-        local dotfile_issues=() u h
+        local dotfile_issues=() netrc_warns=() u h
         while IFS=" " read -r u h; do
             [[ -z "$u" || -z "$h" || ! -d "$h" ]] && continue
             local fstype pgrp df
@@ -4281,10 +4582,15 @@ run_section_7() {
                 bname="$(basename "$df")"
                 read -r m o g <<< "$(stat -Lc '%#a %U %G' "$df" 2>/dev/null)"
                 case "$bname" in
-                    .forward|.rhosts)
+                    .forward|.rhost|.rhosts)
                         dotfile_issues+=("${df} exists (must be removed)")
                         continue ;;
-                    .netrc|.bash_history)
+                    .netrc)
+                        mask="0177"
+                        if [[ $(( m & mask )) -eq 0 && "$o" == "$u" && "$g" == "$pgrp" ]]; then
+                            netrc_warns+=("${df} exists (0600)")
+                        fi ;;
+                    .bash_history)
                         mask="0177" ;;
                     *)
                         mask="0133" ;;
@@ -4292,21 +4598,20 @@ run_section_7() {
                 [[ $(( m & mask )) -gt 0 ]] && dotfile_issues+=("${df} mode ${m} (mask ${mask} violated)")
                 [[ "$o" != "$u" ]] && dotfile_issues+=("${df} owned by ${o} (expected ${u})")
                 [[ "$g" != "$pgrp" ]] && dotfile_issues+=("${df} group ${g} (expected ${pgrp})")
-            done < <(find "$h" -xdev -maxdepth 2 -type f -name '.*' -print0 2>/dev/null)
+            done < <(find "$h" -xdev -type f -name '.*' -print0 2>/dev/null)
         done < <(awk -v pat="$valid_shells" -F: '$(NF) ~ pat { print $1 " " $(NF-1) }' /etc/passwd 2>/dev/null)
         if [[ "${#dotfile_issues[@]}" -eq 0 ]]; then
-            report_ok "7.2.10" "Ensure local interactive user dot files access is configured" "L1" "Automated"
+            local note=""
+            [[ "${#netrc_warns[@]}" -gt 0 ]] && note="Warning: ${netrc_warns[*]}"
+            report_ok "7.2.10" "Ensure local interactive user dot files access is configured" "L1" "Automated" "$note"
         else
             report_fail "7.2.10" "Ensure local interactive user dot files access is configured" "L1" "Automated" \
                 "$(IFS='; '; echo "${dotfile_issues[*]:0:5}")" \
-                "Remove .forward/.rhosts files, set .bash_history/.netrc to 0600 ('chmod u-x,go-rwx'), set other dot files to 0644 ('chmod u-x,go-wx'), and set owner/group to <user>:<primary_group>."
+                "Remove .forward/.rhost/.rhosts files, set .bash_history/.netrc to 0600 ('chmod u-x,go-rwx'), set other dot files to 0644 ('chmod u-x,go-wx'), and set owner/group to <user>:<primary_group>."
         fi
     fi
 
 }
-
-# ==============================================================================
-# MAIN EXECUTION & SUMMARY SCORECARD
 
 # ==============================================================================
 # MAIN EXECUTION & SUMMARY SCORECARD
