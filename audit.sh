@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # CIS Benchmark Security Audit Suite - Interactive CLI Launcher (audit.sh)
-# Benchmarks:  Ubuntu 26.04 LTS | Ubuntu 24.04 LTS | MariaDB 10.6 | Apache 2.4 | NGINX 3.0.0
 # Repository:  https://github.com/nmwafa/cis-audit
 #
 # Quick Start (Direct Execution from GitHub):
@@ -25,6 +24,7 @@ fi
 # Standardized Audit Script Filenames
 SCRIPT_UBUNTU="cis_ubuntu_26.04.sh"
 SCRIPT_UBUNTU_2404="cis_ubuntu_24.04.sh"
+SCRIPT_UBUNTU_2204="cis_ubuntu_22.04.sh"
 SCRIPT_MARIADB="cis_mariadb_10.6.sh"
 SCRIPT_APACHE="cis_apache_2.4.sh"
 SCRIPT_NGINX="cis_nginx_v3.0.0.sh"
@@ -195,7 +195,7 @@ Direct Execution from GitHub:
   curl -s https://raw.githubusercontent.com/nmwafa/cis-audit/main/audit.sh | sudo bash
 
 Universal CLI Options:
-  -t, --target <1..5|name>       Run target directly (1/ubuntu-26.04, 2/ubuntu-24.04, 3/mariadb, 4/apache, 5/nginx)
+  -t, --target <1..6|name>       Run target directly (1/ubuntu-26.04, 2/ubuntu-24.04, 3/ubuntu-22.04, 4/mariadb, 5/apache, 6/nginx)
   -l, --level <1|2|all>          Filter by CIS Profile Level (1 = Level 1, 2 = Level 2, all = All Profiles [default])
   -o, --output <file>            Save full audit report to <file>
   -q, --quiet-ok                 Hide [OK] results and display only FAIL/MANUAL/SKIP findings
@@ -347,15 +347,23 @@ detect_host_services() {
     if [[ "${os_id,,}" == "ubuntu" && "$os_ver" == "26.04"* ]]; then
         BADGE_UBUNTU_2604="${C_GREEN}[DETECTED]${C_RESET}"
         BADGE_UBUNTU_2404="${C_CYAN}[UBUNTU OS]${C_RESET}"
+        BADGE_UBUNTU_2204="${C_CYAN}[UBUNTU OS]${C_RESET}"
     elif [[ "${os_id,,}" == "ubuntu" && "$os_ver" == "24.04"* ]]; then
         BADGE_UBUNTU_2604="${C_CYAN}[UBUNTU OS]${C_RESET}"
         BADGE_UBUNTU_2404="${C_GREEN}[DETECTED]${C_RESET}"
+        BADGE_UBUNTU_2204="${C_CYAN}[UBUNTU OS]${C_RESET}"
+    elif [[ "${os_id,,}" == "ubuntu" && "$os_ver" == "22.04"* ]]; then
+        BADGE_UBUNTU_2604="${C_CYAN}[UBUNTU OS]${C_RESET}"
+        BADGE_UBUNTU_2404="${C_CYAN}[UBUNTU OS]${C_RESET}"
+        BADGE_UBUNTU_2204="${C_GREEN}[DETECTED]${C_RESET}"
     elif [[ "${os_id,,}" =~ (ubuntu|debian) ]]; then
         BADGE_UBUNTU_2604="${C_GREEN}[DETECTED]${C_RESET}"
         BADGE_UBUNTU_2404="${C_GREEN}[DETECTED]${C_RESET}"
+        BADGE_UBUNTU_2204="${C_GREEN}[DETECTED]${C_RESET}"
     else
         BADGE_UBUNTU_2604="${C_YELLOW}[LINUX OS]${C_RESET}"
         BADGE_UBUNTU_2404="${C_YELLOW}[LINUX OS]${C_RESET}"
+        BADGE_UBUNTU_2204="${C_YELLOW}[LINUX OS]${C_RESET}"
     fi
 
     if command -v mariadbd >/dev/null 2>&1 || command -v mariadb >/dev/null 2>&1 || command -v mysqld >/dev/null 2>&1; then
@@ -382,7 +390,7 @@ detect_host_services() {
         BADGE_NGINX="${C_DIM}[NOT INSTALLED]${C_RESET}"
     fi
 
-    if [[ -n "$SCRIPT_DIR" && ( -f "${SCRIPT_DIR}/${SCRIPT_UBUNTU}" || -f "${SCRIPT_DIR}/${SCRIPT_UBUNTU_2404}" ) ]]; then
+    if [[ -n "$SCRIPT_DIR" && ( -f "${SCRIPT_DIR}/${SCRIPT_UBUNTU}" || -f "${SCRIPT_DIR}/${SCRIPT_UBUNTU_2404}" || -f "${SCRIPT_DIR}/${SCRIPT_UBUNTU_2204}" ) ]]; then
         EXEC_SOURCE="Local Directory (${SCRIPT_DIR})"
     else
         EXEC_SOURCE="GitHub Remote Stream (${REPO_BASE_URL})"
@@ -419,10 +427,12 @@ print_main_menu() {
     printf "  ${C_CYAN}${C_BOLD}[2]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
         "CIS Ubuntu Linux 24.04 LTS Benchmark v2.0.0" "(333 Controls)" "$BADGE_UBUNTU_2404"
     printf "  ${C_CYAN}${C_BOLD}[3]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
-        "CIS MariaDB 10.6 Benchmark v1.1.0" "( 74 Controls)" "$BADGE_MARIADB"
+        "CIS Ubuntu Linux 22.04 LTS Benchmark v3.0.0" "(306 Controls)" "$BADGE_UBUNTU_2204"
     printf "  ${C_CYAN}${C_BOLD}[4]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
-        "CIS Apache HTTP Server 2.4 Benchmark v2.4.0" "( 81 Controls)" "$BADGE_APACHE"
+        "CIS MariaDB 10.6 Benchmark v1.1.0" "( 74 Controls)" "$BADGE_MARIADB"
     printf "  ${C_CYAN}${C_BOLD}[5]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
+        "CIS Apache HTTP Server 2.4 Benchmark v2.4.0" "( 81 Controls)" "$BADGE_APACHE"
+    printf "  ${C_CYAN}${C_BOLD}[6]${C_RESET} %-46s ${C_DIM}%-16s${C_RESET} %b\n" \
         "CIS NGINX Benchmark v3.0.0" "( 44 Controls)" "$BADGE_NGINX"
     echo -e "  ${C_RED}${C_BOLD}[0]${C_RESET} Exit CIS Audit Launcher\n"
 }
@@ -619,7 +629,52 @@ menu_audit_ubuntu_2404() {
     done
 }
 
-# Audit Code 3: CIS MariaDB 10.6 Benchmark v1.1.0
+# Audit Code 3: CIS Ubuntu Linux 22.04 LTS Benchmark v3.0.0
+menu_audit_ubuntu_2204() {
+    reset_active_options
+    while true; do
+        clear_screen
+        print_launcher_banner
+        format_common_labels
+        echo -e ""
+        echo -e "${C_BG_BLUE} [AUDIT CODE 3] CIS UBUNTU LINUX 22.04 LTS v3.0.0 - AUDIT OPTIONS ${C_RESET}"
+        echo -e ""
+        echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
+        echo -e ""
+        echo -e "  ${C_YELLOW}${C_BOLD}Ubuntu 22.04 Audit Options:${C_RESET}"
+        printf "    ${C_CYAN}${C_BOLD}[1]${C_RESET} %-35s : %b\n" "Profile Level (-l, --level)" "$PROFILE_DISP"
+        printf "    ${C_CYAN}${C_BOLD}[2]${C_RESET} %-35s : %b\n" "Quiet-OK Mode (-q, --quiet-ok)" "$QUIET_DISP"
+        printf "    ${C_CYAN}${C_BOLD}[3]${C_RESET} %-35s : ${C_WHITE}%s${C_RESET}\n" "Output File (-o, --output)" "$OUT_DISP"
+        printf "    ${C_CYAN}${C_BOLD}[4]${C_RESET} %-35s : %b\n" "Color Output (-n, --no-color)" "$COLOR_DISP"
+        echo -e ""
+        print_status_notice
+        echo -e "  ${C_GREEN}${C_BOLD}[Enter / r]${C_RESET} Start Ubuntu 22.04 Audit Now   ${C_YELLOW}${C_BOLD}[d]${C_RESET} Reset Defaults   ${C_RED}${C_BOLD}[0 / b]${C_RESET} Back"
+        echo -e ""
+
+        local sub=""
+        prompt_input "${C_BOLD}${C_CYAN}Press [Enter] to start audit, or select option [1-4, d, 0]: ${C_RESET}" sub || return 1
+        sub="$(echo "$sub" | xargs)"
+
+        if [[ -z "$sub" || "${sub,,}" == "r" || "${sub,,}" == "run" ]]; then
+            execute_audit_script "ubuntu2204" "$SCRIPT_UBUNTU_2204" "CIS Ubuntu Linux 22.04 LTS Benchmark v3.0.0"
+            return 0
+        elif [[ "$sub" == "0" || "${sub,,}" == "b" || "${sub,,}" == "back" ]]; then
+            return 2
+        elif [[ "${sub,,}" == "d" || "${sub,,}" == "reset" ]]; then
+            reset_active_options
+            STATUS_MSG="${C_GREEN}[*] Reset to default settings.${C_RESET}"
+        else
+            handle_common_option_number "$sub"
+            local rc=$?
+            [[ "$rc" -eq 1 ]] && return 1
+            if [[ "$rc" -eq 2 ]]; then
+                STATUS_MSG="${C_RED}[!] Invalid option '${sub}'. Select [1-4], [d] to reset, [0] to go back, or press [Enter] to run.${C_RESET}"
+            fi
+        fi
+    done
+}
+
+# Audit Code 4: CIS MariaDB 10.6 Benchmark v1.1.0
 menu_audit_mariadb() {
     reset_active_options
     while true; do
@@ -631,7 +686,7 @@ menu_audit_mariadb() {
         local pass_disp="not set (default)"
         [[ -n "$MDB_PASS" ]] && pass_disp="******** (set)"
 
-        echo -e "\n${C_BG_BLUE} [AUDIT CODE 3] CIS MARIADB 10.6 BENCHMARK v1.1.0 - AUDIT OPTIONS ${C_RESET}"
+        echo -e "\n${C_BG_BLUE} [AUDIT CODE 4] CIS MARIADB 10.6 BENCHMARK v1.1.0 - AUDIT OPTIONS ${C_RESET}"
         echo -e ""
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
         echo -e ""
@@ -727,7 +782,7 @@ menu_audit_mariadb() {
     done
 }
 
-# Audit Code 4: CIS Apache HTTP Server 2.4 Benchmark v2.4.0
+# Audit Code 5: CIS Apache HTTP Server 2.4 Benchmark v2.4.0
 menu_audit_apache() {
     reset_active_options
     while true; do
@@ -735,7 +790,7 @@ menu_audit_apache() {
         print_launcher_banner
         format_common_labels
         echo -e ""
-        echo -e "${C_BG_BLUE} [AUDIT CODE 4] CIS APACHE HTTP SERVER 2.4 v2.4.0 - AUDIT OPTIONS ${C_RESET}"
+        echo -e "${C_BG_BLUE} [AUDIT CODE 5] CIS APACHE HTTP SERVER 2.4 v2.4.0 - AUDIT OPTIONS ${C_RESET}"
         echo -e ""
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}"
         echo -e ""
@@ -798,14 +853,14 @@ menu_audit_apache() {
     done
 }
 
-# Audit Code 5: CIS NGINX Benchmark v3.0.0
+# Audit Code 6: CIS NGINX Benchmark v3.0.0
 menu_audit_nginx() {
     reset_active_options
     while true; do
         clear_screen
         print_launcher_banner
         format_common_labels
-        echo -e "\n${C_BG_BLUE} [AUDIT CODE 5] CIS NGINX BENCHMARK v3.0.0 - AUDIT OPTIONS ${C_RESET}\n"
+        echo -e "\n${C_BG_BLUE} [AUDIT CODE 6] CIS NGINX BENCHMARK v3.0.0 - AUDIT OPTIONS ${C_RESET}\n"
         echo -e "  ${C_DIM}Press [Enter] to run immediately with defaults, or select an option below.${C_RESET}\n"
         echo -e "  ${C_YELLOW}${C_BOLD}General Audit Options:${C_RESET}"
         printf "    ${C_CYAN}${C_BOLD}[1]${C_RESET} %-35s : %b\n" "Profile Level (-l, --level)" "$PROFILE_DISP"
@@ -1003,13 +1058,16 @@ run_direct_target() {
         2|ubuntu-24.04|ubuntu24|ubuntu2404|24.04)
             execute_audit_script "ubuntu2404" "$SCRIPT_UBUNTU_2404" "CIS Ubuntu Linux 24.04 LTS Benchmark v2.0.0"
             ;;
-        3|mariadb|mysql)
+        3|ubuntu-22.04|ubuntu22|ubuntu2204|22.04)
+            execute_audit_script "ubuntu2204" "$SCRIPT_UBUNTU_2204" "CIS Ubuntu Linux 22.04 LTS Benchmark v3.0.0"
+            ;;
+        4|mariadb|mysql)
             execute_audit_script "mariadb" "$SCRIPT_MARIADB" "CIS MariaDB 10.6 Benchmark v1.1.0"
             ;;
-        4|apache|httpd)
+        5|apache|httpd)
             execute_audit_script "apache" "$SCRIPT_APACHE" "CIS Apache HTTP Server 2.4 Benchmark v2.4.0"
             ;;
-        5|nginx)
+        6|nginx)
             execute_audit_script "nginx" "$SCRIPT_NGINX" "CIS NGINX Benchmark v3.0.0"
             ;;
         *)
@@ -1044,7 +1102,7 @@ interactive_loop() {
         print_launcher_banner
         print_main_menu
         local choice=""
-        if ! prompt_input "${C_BOLD}${C_CYAN}Select an audit code [1-5, or 0 to exit]: ${C_RESET}" choice; then
+        if ! prompt_input "${C_BOLD}${C_CYAN}Select an audit code [1-6, or 0 to exit]: ${C_RESET}" choice; then
             echo ""
             break
         fi
@@ -1058,13 +1116,16 @@ interactive_loop() {
             2|ubuntu-24.04|ubuntu24|24.04)
                 menu_audit_ubuntu_2404 || menu_rc=$?
                 ;;
-            3|mariadb|mysql)
+            3|ubuntu-22.04|ubuntu22|22.04)
+                menu_audit_ubuntu_2204 || menu_rc=$?
+                ;;
+            4|mariadb|mysql)
                 menu_audit_mariadb || menu_rc=$?
                 ;;
-            4|apache|httpd)
+            5|apache|httpd)
                 menu_audit_apache || menu_rc=$?
                 ;;
-            5|nginx)
+            6|nginx)
                 menu_audit_nginx || menu_rc=$?
                 ;;
             0|q|exit|quit)
@@ -1075,7 +1136,7 @@ interactive_loop() {
                 continue
                 ;;
             *)
-                echo -e "${C_RED}[!] Invalid selection '${choice}'. Please select audit code 1-5, or 0 to exit.${C_RESET}"
+                echo -e "${C_RED}[!] Invalid selection '${choice}'. Please select audit code 1-6, or 0 to exit.${C_RESET}"
                 sleep 1
                 continue
                 ;;

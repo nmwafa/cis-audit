@@ -1,6 +1,6 @@
 # CIS Benchmark Security Audit Suite
 
-Standalone, zero-install, read-only Bash security auditing suite and interactive CLI launcher covering **882 CIS Benchmark controls** across Ubuntu Linux 26.04 LTS, Ubuntu Linux 24.04 LTS, MariaDB 10.6, Apache HTTP Server 2.4, and NGINX 3.0.0.
+Standalone, zero-install, read-only Bash security auditing suite and interactive CLI launcher covering **1,188 CIS Benchmark controls** across Ubuntu Linux 26.04 LTS, Ubuntu Linux 24.04 LTS, Ubuntu Linux 22.04 LTS, MariaDB 10.6, Apache HTTP Server 2.4, and NGINX 3.0.0.
 
 ## Quick Start (Run Directly from GitHub)
 
@@ -25,14 +25,17 @@ curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s --
 # Ubuntu Linux 24.04 LTS, Level 1 profile only
 curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 2 --level 1
 
+# Ubuntu Linux 22.04 LTS
+curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 3
+
 # MariaDB 10.6; prompt securely for the database password
-curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 3 --db-user root --ask-pass
+curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 4 --db-user root --ask-pass
 
 # Apache HTTP Server 2.4; save the report to a file
-curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 4 --output apache-audit.txt
+curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 5 --output apache-audit.txt
 
 # NGINX; specify authorized listen ports
-curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 5 --nginx-ports 80,443,8443
+curl -sL https://github.com/nmwafa/cis-audit/raw/main/audit.sh | sudo bash -s -- --target 6 --nginx-ports 80,443,8443
 ```
 
 Run `audit.sh --help` for the full command-line option list. When piping the launcher from `curl`, append arguments after `bash -s --`.
@@ -47,10 +50,10 @@ Run `audit.sh --help` for the full command-line option list. When piping the lau
 | --- | --- | --- | --- |
 | `[1]` | Ubuntu Linux 26.04 LTS (`cis_ubuntu_26.04.sh`) | 7 sections, 350 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color |
 | `[2]` | Ubuntu Linux 24.04 LTS (`cis_ubuntu_24.04.sh`) | 7 sections, 333 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color |
-| `[3]` | MariaDB 10.6 (`cis_mariadb_10.6.sh`) | 9 sections, 74 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color · `[5]` DB User · `[6]` Ask-Pass · `[7]` Password · `[8]` Host · `[9]` Port · `[10]` Socket · `[11]` Defaults File · `[12]` Config File · `[13]` Admin Users · `[14]` Replication Users · `[15]` Backup Directories |
-| `[4]` | Apache HTTP Server 2.4 (`cis_apache_2.4.sh`) | 12 sections, 81 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color · `[5]` ServerRoot Prefix · `[6]` Main Config File · `[7]` Apache Binary · `[8]` DocumentRoot |
-| `[5]` | NGINX 3.0.0 (`cis_nginx_v3.0.0.sh`) | 6 sections, 44 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color · `[5]` NGINX Config Directory · `[6]` NGINX Binary · `[7]` Authorized Ports |
-| `[6]` | Full CIS Audit Suite (all five benchmarks) | 882 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color |
+| `[3]` | Ubuntu Linux 22.04 LTS (`cis_ubuntu_22.04.sh`) | 7 sections, 306 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color |
+| `[4]` | MariaDB 10.6 (`cis_mariadb_10.6.sh`) | 9 sections, 74 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color · `[5]` DB User · `[6]` Ask-Pass · `[7]` Password · `[8]` Host · `[9]` Port · `[10]` Socket · `[11]` Defaults File · `[12]` Config File · `[13]` Admin Users · `[14]` Replication Users · `[15]` Backup Directories |
+| `[5]` | Apache HTTP Server 2.4 (`cis_apache_2.4.sh`) | 12 sections, 81 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color · `[5]` ServerRoot Prefix · `[6]` Main Config File · `[7]` Apache Binary · `[8]` DocumentRoot |
+| `[6]` | NGINX 3.0.0 (`cis_nginx_v3.0.0.sh`) | 6 sections, 44 controls | `[1]` Profile Level · `[2]` Quiet-OK · `[3]` Output File · `[4]` Color · `[5]` NGINX Config Directory · `[6]` NGINX Binary · `[7]` Authorized Ports |
 
 ## Command-Line Options
 
@@ -58,7 +61,7 @@ Common launcher options:
 
 | Option | Description |
 | --- | --- |
-| `-t, --target <1..6\|name>` | Run one target directly. Names include `ubuntu-26.04`, `ubuntu-24.04`, `mariadb`, `apache`, `nginx`, and `all`. |
+| `-t, --target <1..6\|name>` | Run one target directly. Names include `ubuntu-26.04`, `ubuntu-24.04`, `ubuntu-22.04`, `mariadb`, `apache`, and `nginx`. |
 | `-l, --level <1\|2\|all>` | Select a CIS profile level. Defaults to `all`. |
 | `-o, --output <file>` | Save the full audit report to a file. |
 | `-q, --quiet-ok` | Hide compliant `[OK]` results; show findings requiring attention. |
@@ -81,6 +84,7 @@ sudo bash audit.sh --target nginx --nginx-config-dir /etc/nginx --nginx-ports 80
 | --- | --- | ---: |
 | Ubuntu Linux 26.04 LTS | v1.0.0 | 350 |
 | Ubuntu Linux 24.04 LTS | v2.0.0 | 333 |
+| Ubuntu Linux 22.04 LTS | v3.0.0 | 306 |
 | MariaDB 10.6 | v1.1.0 | 74 |
 | Apache HTTP Server 2.4 | v2.4.0 | 81 |
 | NGINX | v3.0.0 | 44 |
